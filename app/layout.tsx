@@ -2,7 +2,6 @@ import "./globals.css";
 
 export const metadata = {
   title: "Smenuberu",
-  description: "Поиск исполнителей с быстрой оплатой",
 };
 
 export default function RootLayout({
@@ -12,7 +11,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body className="min-h-screen bg-gray-50 text-gray-900">
+        {children}
+      </body>
     </html>
   );
 }
