@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Link } from "next-view-transitions";
+import NextLink from "next/link";
+import { Link as VTLink } from "next-view-transitions";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard,
@@ -59,7 +60,7 @@ export default function DashboardLayout({
             const active = isActivePath(pathname, item.href);
 
             return (
-              <Link
+              <VTLink
                 key={item.href}
                 href={item.href}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-gray-50 ${
@@ -69,7 +70,7 @@ export default function DashboardLayout({
               >
                 <Icon className="h-5 w-5 text-gray-600" />
                 {!collapsed && <span>{item.label}</span>}
-              </Link>
+              </VTLink>
             );
           })}
         </nav>
@@ -84,8 +85,8 @@ export default function DashboardLayout({
         {children}
       </main>
 
-      {/* Mobile glass bottom nav + liquid bubble */}
-      <nav className="md:hidden fixed bottom-3 left-3 right-3 z-50">
+      {/* Mobile glass bottom nav + liquid bubble (NO view transitions here) */}
+      <nav className="md:hidden fixed bottom-3 left-3 right-3 z-50 mobile-bottom-bar">
         <div
           className="
             relative
@@ -102,9 +103,10 @@ export default function DashboardLayout({
             const active = isActivePath(pathname, item.href);
 
             return (
-              <Link
+              <NextLink
                 key={item.href}
                 href={item.href}
+                scroll={false}
                 className="relative flex items-center justify-center w-full h-full"
                 aria-label={item.label}
               >
@@ -119,7 +121,7 @@ export default function DashboardLayout({
                 <span className="relative z-10">
                   <Icon className="h-6 w-6 text-gray-800" />
                 </span>
-              </Link>
+              </NextLink>
             );
           })}
         </div>
