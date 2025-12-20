@@ -1,104 +1,131 @@
-import Link from "next/link";
-import { Pencil } from "lucide-react";
+"use client";
 
-type AdminShift = {
-  id: string;
-  title: string;
-  company: string;
-  date: string;
-};
+import { useState } from "react";
+import { usePathname } from "next/navigation";
+import NextLink from "next/link";
+import { Link as VTLink } from "next-view-transitions";
+import { motion } from "framer-motion";
+import {
+  LayoutDashboard,
+  Building2,
+  Briefcase,
+  Bell,
+  User,
+} from "lucide-react";
 
-async function getAdminShifts(): Promise<AdminShift[]> {
-  const res = await fetch("https://smenuberu-api.onrender.com/slots", {
-    cache: "no-store",
-  });
+const navItems = [
+  { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
+  { href: "/dashboard/objects", label: "Объекты", icon: Building2 },
+  { href: "/dashboard/shifts", label: "Смены", icon: Briefcase },
+  { href: "/dashboard/notifications", label: "Уведомления", icon: Bell },
+  { href: "/dashboard/profile", label: "Профиль", icon: User },
+];
 
-  if (!res.ok) {
-    console.error("Failed to load shifts", res.status);
-    return [];
-  }
-
-  const data = await res.json();
-
-  return data.map((slot: any) => ({
-    id: slot.id,
-    title: slot.title,
-    company: slot.company,
-    date: slot.date,
-  }));
+function isActivePath(pathname: string, href: string) {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
-export default async function ShiftsPage() {
-  const shifts = await getAdminShifts();
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Смены</h1>
+    <div className="min-h-screen bg-gray-50">
+      {/* Desktop sidebar */}
+      <aside
+        className={`hidden md:fixed md:inset-y-0 md:flex md:flex-col bg-white border-r border-gray-200 px-3 py-4 transition-all duration-200 ${
+          collapsed ? "md:w-16" : "md:w-64"
+        }`}
+      >
+        <div className="flex items-center justify-between mb-6 px-2">
+          {!collapsed && <div className="text-lg font-semibold">Smenuberu</div>}
 
-        <Link
-          href="/dashboard/shifts/new"
-          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition"
-        >
-          Создать смену
-        </Link>
-      </div>
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className="h-8 w-8 rounded-lg border border-gray-200 flex items-center justify-center text-xs hover:bg-gray-50"
+            title="Свернуть меню"
+          >
+            {collapsed ? "→" : "←"}
+          </button>
+        </div>
+
+        <nav className="space-y-1 text-sm">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActivePath(pathname, item.href);
+
+            return (
+              <VTLink
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-gray-50 ${
+                  active ? "text-gray-900" : "text-gray-700"
+                }`}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-5 w-5 text-gray-600" />
+                {!collapsed && <span>{item.label}</span>}
+              </VTLink>
+            );
+          })}
+        </nav>
+      </aside>
 
       {/* Content */}
-      {shifts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-medium mb-2">
-            У вас пока нет смен
-          </h2>
-          <p className="text-sm text-gray-500">
-            Создайте первую смену, чтобы начать поиск исполнителей
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {shifts.map((shift) => (
-            <div
-              key={shift.id}
-              className="rounded-xl bg-white p-6 border border-gray-200 hover:shadow-sm transition"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{shift.title}</div>
-                  <div className="text-sm text-gray-500">
-                    {shift.company}
-                  </div>
-                </div>
+      <main
+        className={`p-4 pb-28 md:p-10 transition-all duration-200 ${
+          collapsed ? "md:ml-16" : "md:ml-64"
+        }`}
+      >
+        {children}
+      </main>
 
-                <div className="flex items-center gap-3">
-                  <div className="text-sm text-gray-500">
-                    {shift.date}
-                  </div>
+      {/* Mobile glass bottom nav + liquid bubble (NO view transitions here) */}
+      <nav className="md:hidden fixed bottom-3 left-3 right-3 z-50 mobile-bottom-bar">
+        <div
+          className="
+            relative
+            flex justify-around items-center
+            h-14 rounded-2xl
+            bg-white/70
+            backdrop-blur-xl backdrop-saturate-150
+            shadow-[0_10px_30px_rgba(0,0,0,0.12)]
+            border border-white/40
+          "
+        >
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActivePath(pathname, item.href);
 
-                  <Link
-                    href={`/dashboard/shifts/${shift.id}`}
-                    className="
-                      h-8
-                      rounded-lg
-                      border border-gray-200
-                      flex items-center gap-1.5
-                      px-3
-                      text-xs
-                      text-gray-700
-                      hover:bg-gray-50
-                      transition
-                    "
-                    title="Редактировать смену"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    <span>Редактировать</span>
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ))}
+            return (
+              <NextLink
+                key={item.href}
+                href={item.href}
+                scroll={false}
+                className="relative flex items-center justify-center w-full h-full"
+                aria-label={item.label}
+              >
+                {active && (
+                  <motion.div
+                    layoutId="mobile-tab-bubble"
+                    className="absolute inset-2 rounded-2xl bg-black/10"
+                    transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  />
+                )}
+
+                <span className="relative z-10">
+                  <Icon className="h-6 w-6 text-gray-800" />
+                </span>
+              </NextLink>
+            );
+          })}
         </div>
-      )}
+      </nav>
     </div>
   );
 }
