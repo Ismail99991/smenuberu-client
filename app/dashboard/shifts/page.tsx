@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 
 type AdminShift = {
   id: string;
@@ -9,7 +10,7 @@ type AdminShift = {
 
 async function getAdminShifts(): Promise<AdminShift[]> {
   const res = await fetch("https://smenuberu-api.onrender.com/slots", {
-    cache: "no-store"
+    cache: "no-store",
   });
 
   if (!res.ok) {
@@ -23,7 +24,7 @@ async function getAdminShifts(): Promise<AdminShift[]> {
     id: slot.id,
     title: slot.title,
     company: slot.company,
-    date: slot.date
+    date: slot.date,
   }));
 }
 
@@ -47,7 +48,9 @@ export default async function ShiftsPage() {
       {/* Content */}
       {shifts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-medium mb-2">У вас пока нет смен</h2>
+          <h2 className="text-lg font-medium mb-2">
+            У вас пока нет смен
+          </h2>
           <p className="text-sm text-gray-500">
             Создайте первую смену, чтобы начать поиск исполнителей
           </p>
@@ -62,17 +65,32 @@ export default async function ShiftsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{shift.title}</div>
-                  <div className="text-sm text-gray-500">{shift.company}</div>
+                  <div className="text-sm text-gray-500">
+                    {shift.company}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="text-sm text-gray-500">{shift.date}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-gray-500">
+                    {shift.date}
+                  </div>
 
+                  {/* ИКОНКА-КНОПКА */}
                   <Link
                     href={`/dashboard/shifts/${shift.id}`}
-                    className="text-sm font-medium text-blue-600 hover:underline"
+                    className="
+                      h-8 w-8
+                      rounded-lg
+                      border border-gray-200
+                      flex items-center justify-center
+                      text-gray-700
+                      hover:bg-gray-50
+                      transition
+                    "
+                    title="Редактировать смену"
+                    aria-label="Редактировать смену"
                   >
-                    Редактировать
+                    <Pencil className="h-4 w-4" />
                   </Link>
                 </div>
               </div>
