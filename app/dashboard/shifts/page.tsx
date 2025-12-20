@@ -1,15 +1,37 @@
 import Link from "next/link";
 
-type Shift = {
-  id: number;
+type AdminShift = {
+  id: string;
   title: string;
+  company: string;
   date: string;
-  object: string;
 };
 
-const shifts: Shift[] = [];
+async function getAdminShifts(): Promise<AdminShift[]> {
+  const res = await fetch("https://smenuberu-api.onrender.com/slots", {
+    // важно: без кеша, чтобы админка видела актуальные данные
+    cache: "no-store"
+  });
 
-export default function ShiftsPage() {
+  if (!res.ok) {
+    console.error("Failed to load shifts", res.status);
+    return [];
+  }
+
+  const data = await res.json();
+
+  // минимальное приведение под admin UI
+  return data.map((slot: any) => ({
+    id: slot.id,
+    title: slot.title,
+    company: slot.company,
+    date: slot.date
+  }));
+}
+
+export default async function ShiftsPage() {
+  const shifts = await getAdminShifts();
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -45,7 +67,7 @@ export default function ShiftsPage() {
                 <div>
                   <div className="font-medium">{shift.title}</div>
                   <div className="text-sm text-gray-500">
-                    {shift.object}
+                    {shift.company}
                   </div>
                 </div>
 
