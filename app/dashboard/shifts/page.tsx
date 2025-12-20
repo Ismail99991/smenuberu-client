@@ -9,7 +9,6 @@ type AdminShift = {
 
 async function getAdminShifts(): Promise<AdminShift[]> {
   const res = await fetch("https://smenuberu-api.onrender.com/slots", {
-    // важно: без кеша, чтобы админка видела актуальные данные
     cache: "no-store"
   });
 
@@ -20,7 +19,6 @@ async function getAdminShifts(): Promise<AdminShift[]> {
 
   const data = await res.json();
 
-  // минимальное приведение под admin UI
   return data.map((slot: any) => ({
     id: slot.id,
     title: slot.title,
@@ -49,9 +47,7 @@ export default async function ShiftsPage() {
       {/* Content */}
       {shifts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-medium mb-2">
-            У вас пока нет смен
-          </h2>
+          <h2 className="text-lg font-medium mb-2">У вас пока нет смен</h2>
           <p className="text-sm text-gray-500">
             Создайте первую смену, чтобы начать поиск исполнителей
           </p>
@@ -66,13 +62,18 @@ export default async function ShiftsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{shift.title}</div>
-                  <div className="text-sm text-gray-500">
-                    {shift.company}
-                  </div>
+                  <div className="text-sm text-gray-500">{shift.company}</div>
                 </div>
 
-                <div className="text-sm text-gray-500">
-                  {shift.date}
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-gray-500">{shift.date}</div>
+
+                  <Link
+                    href={`/dashboard/shifts/${shift.id}`}
+                    className="text-sm font-medium text-blue-600 hover:underline"
+                  >
+                    Редактировать
+                  </Link>
                 </div>
               </div>
             </div>
