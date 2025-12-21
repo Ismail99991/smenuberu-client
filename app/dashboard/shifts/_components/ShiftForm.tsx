@@ -35,6 +35,13 @@ export type ShiftFormValues = {
 
 type Props = {
   mode: "create" | "edit";
+
+  /**
+   * BACK-COMPAT: раньше формы принимали backHref и рисовали текстовую ссылку.
+   * Сейчас текстовых ссылок не делаем, но проп оставляем, чтобы не ломать страницы.
+   */
+  backHref?: string;
+
   initialValues?: Partial<ShiftFormValues>;
   onSubmit?: (values: ShiftFormValues) => void | Promise<void>;
   submitLabel?: string;
@@ -75,6 +82,7 @@ function getApiBaseUrl() {
 
 export default function ShiftForm({
   mode,
+  backHref,
   initialValues,
   onSubmit,
   submitLabel,
@@ -140,6 +148,14 @@ export default function ShiftForm({
 
   const submitText =
     submitLabel ?? (mode === "create" ? "Сохранить" : "Сохранить изменения");
+
+  const cancelHandler =
+    onCancel ??
+    (backHref
+      ? () => {
+          window.location.href = backHref;
+        }
+      : undefined);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -319,8 +335,8 @@ export default function ShiftForm({
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
-          onClick={onCancel}
-          disabled={!onCancel || submitting}
+          onClick={cancelHandler}
+          disabled={!cancelHandler || submitting}
           className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-800 hover:bg-gray-50 transition disabled:opacity-50"
           aria-label="Отмена"
           title="Отмена"
