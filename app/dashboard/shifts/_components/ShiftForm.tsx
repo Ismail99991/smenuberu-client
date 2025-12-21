@@ -1,7 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { X, Save, Flame } from "lucide-react";
+
+export type TaskType =
+  | "driver"
+  | "picker"
+  | "loader"
+  | "cook"
+  | "waiter"
+  | "cleaner"
+  | "other";
 
 export type ShiftFormValues = {
   objectId: string;
@@ -10,18 +19,29 @@ export type ShiftFormValues = {
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   pay: string; // number as string for input
-  workers: string; // number as string for input
+
+  // UI поля (пока не используются API, оставляем)
+  workers: string;
   payType: "shift" | "hour";
   comment: string;
-  published: boolean; // ✅ “снять с публикации” = false
+
+  // ✅ edit-only
+  published: boolean;
+
+  // ✅ то, что реально нужно API
+  type: TaskType;
+  hot: boolean;
 };
 
 type Props = {
   mode: "create" | "edit";
-  backHref?: string;
   initialValues?: Partial<ShiftFormValues>;
   onSubmit?: (values: ShiftFormValues) => void | Promise<void>;
   submitLabel?: string;
+  submitting?: boolean;
+
+  // вместо текстовой ссылки “Отмена” — иконка-кнопка
+  onCancel?: () => void;
 };
 
 type ApiObject = {
@@ -39,23 +59,27 @@ const defaultValues: ShiftFormValues = {
   startTime: "",
   endTime: "",
   pay: "",
+
   workers: "",
   payType: "shift",
   comment: "",
-  published: true
+  published: true,
+
+  type: "other",
+  hot: false
 };
 
 function getApiBaseUrl() {
-  // Next client-side env. Если у вас другое имя — скажешь, заменим.
   return process.env.NEXT_PUBLIC_API_URL ?? "https://smenuberu-api.onrender.com";
 }
 
 export default function ShiftForm({
   mode,
-  backHref = "/dashboard/shifts",
   initialValues,
   onSubmit,
-  submitLabel
+  submitLabel,
+  submitting = false,
+  onCancel
 }: Props) {
   const initial = useMemo<ShiftFormValues>(() => {
     return { ...defaultValues, ...(initialValues ?? {}) };
@@ -88,18 +112,15 @@ export default function ShiftForm({
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          throw new Error(`Failed to load objects: ${res.status} ${text}`);
+          throw new Error(`Failed to load objects: ${res.status}${text ? ` ${text}` : ""}`);
         }
 
         const data = (await res.json()) as ApiObject[];
-
-        if (!cancelled) {
-          setObjects(Array.isArray(data) ? data : []);
-        }
+        if (!cancelled) setObjects(Array.isArray(data) ? data : []);
       } catch (err: any) {
         if (!cancelled) {
-          setObjectsError(err?.message ?? "Failed to load objects");
           setObjects([]);
+          setObjectsError(err?.message ?? "Failed to load objects");
         }
       } finally {
         if (!cancelled) setObjectsLoading(false);
@@ -117,50 +138,87 @@ export default function ShiftForm({
     if (onSubmit) await onSubmit(values);
   }
 
-  const submitText = submitLabel ?? (mode === "create" ? "Сохранить" : "Сохранить изменения");
+  const submitText =
+    submitLabel ?? (mode === "create" ? "Сохранить" : "Сохранить изменения");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Блок 1 */}
+      {/* Блок 0: API-обязательные поля */}
       <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="w-full">
-            <label className="block text-sm font-medium mb-2">Объект</label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Тип задачи</label>
             <select
-              value={values.objectId}
-              onChange={(e) => patch("objectId", e.target.value)}
-              disabled={objectsLoading}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-60"
+              value={values.type}
+              onChange={(e) => patch("type", e.target.value as TaskType)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
             >
-              <option value="">
-                {objectsLoading ? "Загрузка объектов…" : "Выберите объект…"}
-              </option>
-
-              {objects.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} — {o.city}
-                  {o.address ? `, ${o.address}` : ""}
-                </option>
-              ))}
+              <option value="driver">driver</option>
+              <option value="picker">picker</option>
+              <option value="loader">loader</option>
+              <option value="cook">cook</option>
+              <option value="waiter">waiter</option>
+              <option value="cleaner">cleaner</option>
+              <option value="other">other</option>
             </select>
-
-            {objectsError ? (
-              <p className="mt-2 text-sm text-red-600">{objectsError}</p>
-            ) : null}
           </div>
 
-          {/* ✅ Публикация — показываем только в edit */}
-          {mode === "edit" ? (
+          <div className="flex items-end">
             <label className="flex items-center gap-2 select-none">
               <input
                 type="checkbox"
-                checked={values.published}
-                onChange={(e) => patch("published", e.target.checked)}
+                checked={values.hot}
+                onChange={(e) => patch("hot", e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300"
               />
-              <span className="text-sm text-gray-700">Опубликовано</span>
+              <span className="text-sm text-gray-700 inline-flex items-center gap-2">
+                <Flame className="h-4 w-4" />
+                Hot
+              </span>
             </label>
-          ) : null}
+          </div>
+
+          <div className="flex items-end md:justify-end">
+            {mode === "edit" ? (
+              <label className="flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={values.published}
+                  onChange={(e) => patch("published", e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <span className="text-sm text-gray-700">Опубликовано</span>
+              </label>
+            ) : (
+              <div className="text-xs text-gray-500">Публикация на create не показывается</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Блок 1 */}
+      <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">Объект</label>
+          <select
+            value={values.objectId}
+            onChange={(e) => patch("objectId", e.target.value)}
+            disabled={objectsLoading}
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-60"
+          >
+            <option value="">
+              {objectsLoading ? "Загрузка объектов…" : "Выберите объект…"}
+            </option>
+
+            {objects.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name} — {o.city}
+                {o.address ? `, ${o.address}` : ""}
+              </option>
+            ))}
+          </select>
+
+          {objectsError ? <p className="mt-2 text-sm text-red-600">{objectsError}</p> : null}
         </div>
 
         <div>
@@ -257,19 +315,25 @@ export default function ShiftForm({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-3">
-        <Link
-          href={backHref}
-          className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
+      {/* Actions (без текстовых ссылок) */}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={!onCancel || submitting}
+          className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-800 hover:bg-gray-50 transition disabled:opacity-50"
+          aria-label="Отмена"
+          title="Отмена"
         >
-          Отмена
-        </Link>
+          <X className="h-5 w-5" />
+        </button>
 
         <button
           type="submit"
-          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition"
+          disabled={submitting}
+          className="inline-flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition disabled:opacity-50"
         >
+          <Save className="h-4 w-4" />
           {submitText}
         </button>
       </div>
