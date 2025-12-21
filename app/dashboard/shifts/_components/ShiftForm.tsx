@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type ShiftFormValues = {
   objectId: string;
@@ -24,6 +24,14 @@ type Props = {
   submitLabel?: string;
 };
 
+type ApiObject = {
+  id: string;
+  name: string;
+  city: string;
+  address: string | null;
+  createdAt: string;
+};
+
 const defaultValues: ShiftFormValues = {
   objectId: "",
   title: "",
@@ -36,6 +44,11 @@ const defaultValues: ShiftFormValues = {
   comment: "",
   published: true
 };
+
+function getApiBaseUrl() {
+  // Next client-side env. Если у вас другое имя — скажешь, заменим.
+  return process.env.NEXT_PUBLIC_API_URL ?? "https://smenuberu-api.onrender.com";
+}
 
 export default function ShiftForm({
   mode,
@@ -50,35 +63,90 @@ export default function ShiftForm({
 
   const [values, setValues] = useState<ShiftFormValues>(initial);
 
+  const [objects, setObjects] = useState<ApiObject[]>([]);
+  const [objectsLoading, setObjectsLoading] = useState<boolean>(true);
+  const [objectsError, setObjectsError] = useState<string | null>(null);
+
   function patch<K extends keyof ShiftFormValues>(key: K, val: ShiftFormValues[K]) {
     setValues((v) => ({ ...v, [key]: val }));
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadObjects() {
+      setObjectsLoading(true);
+      setObjectsError(null);
+
+      try {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/objects`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store"
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load objects: ${res.status} ${text}`);
+        }
+
+        const data = (await res.json()) as ApiObject[];
+
+        if (!cancelled) {
+          setObjects(Array.isArray(data) ? data : []);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setObjectsError(err?.message ?? "Failed to load objects");
+          setObjects([]);
+        }
+      } finally {
+        if (!cancelled) setObjectsLoading(false);
+      }
+    }
+
+    loadObjects();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (onSubmit) await onSubmit(values);
   }
 
-  const submitText =
-    submitLabel ?? (mode === "create" ? "Сохранить" : "Сохранить изменения");
+  const submitText = submitLabel ?? (mode === "create" ? "Сохранить" : "Сохранить изменения");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Блок 1 */}
       <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
-          <div>
+          <div className="w-full">
             <label className="block text-sm font-medium mb-2">Объект</label>
             <select
               value={values.objectId}
               onChange={(e) => patch("objectId", e.target.value)}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+              disabled={objectsLoading}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-60"
             >
-              <option value="">Выберите объект…</option>
-              {/* TODO: подгрузим реальные объекты из API */}
-              <option value="demo-1">Объект #1 (пример)</option>
-              <option value="demo-2">Объект #2 (пример)</option>
+              <option value="">
+                {objectsLoading ? "Загрузка объектов…" : "Выберите объект…"}
+              </option>
+
+              {objects.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} — {o.city}
+                  {o.address ? `, ${o.address}` : ""}
+                </option>
+              ))}
             </select>
+
+            {objectsError ? (
+              <p className="mt-2 text-sm text-red-600">{objectsError}</p>
+            ) : null}
           </div>
 
           {/* ✅ Публикация — показываем только в edit */}
@@ -178,9 +246,7 @@ export default function ShiftForm({
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">
-            Комментарий (необязательно)
-          </label>
+          <label className="block text-sm font-medium mb-2">Комментарий (необязательно)</label>
           <textarea
             rows={4}
             value={values.comment}
