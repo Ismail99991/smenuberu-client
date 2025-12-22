@@ -1,8 +1,48 @@
-import Link from "next/link";
+"use client";
 
-const objects: { id: number; name: string; address: string }[] = [];
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+type ObjectItem = {
+  id: string;
+  name: string;
+  city?: string | null;
+  address?: string | null;
+  type?: string | null;
+  logoUrl?: string | null;
+  photos?: string[] | null;
+};
 
 export default function ObjectsPage() {
+  const [objects, setObjects] = useState<ObjectItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    setLoading(true);
+    setErr(null);
+
+    api<ObjectItem[]>("/objects")
+      .then((data: any) => {
+        // поддержим оба формата: массив или { ok, objects }
+        const list = Array.isArray(data) ? data : (data?.objects ?? []);
+        if (alive) setObjects(list);
+      })
+      .catch((e: any) => {
+        if (alive) setErr(e?.message ?? "Ошибка загрузки объектов");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -17,12 +57,15 @@ export default function ObjectsPage() {
         </Link>
       </div>
 
-      {/* Content */}
-      {objects.length === 0 ? (
+      {loading ? (
+        <div className="text-sm text-gray-500">Загрузка…</div>
+      ) : err ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {err}
+        </div>
+      ) : objects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-medium mb-2">
-            У вас пока нет объектов
-          </h2>
+          <h2 className="text-lg font-medium mb-2">У вас пока нет объектов</h2>
           <p className="text-sm text-gray-500">
             Добавьте объект, чтобы создавать смены и находить исполнителей
           </p>
@@ -35,7 +78,10 @@ export default function ObjectsPage() {
               className="rounded-xl bg-white p-6 border border-gray-200 hover:shadow-sm transition"
             >
               <div className="font-medium">{object.name}</div>
-              <div className="text-sm text-gray-500">{object.address}</div>
+              <div className="text-sm text-gray-500">
+                {(object.city ? `${object.city}, ` : "")}
+                {object.address ?? ""}
+              </div>
             </div>
           ))}
         </div>
