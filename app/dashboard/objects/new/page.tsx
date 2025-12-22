@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Factory,
+  Warehouse,
+  Boxes,
+  SplitSquareVertical,
+  HelpCircle,
+  Image as ImageIcon,
+  MapPin,
+} from "lucide-react";
 
 function apiBase() {
   return (process.env.NEXT_PUBLIC_API_URL ?? "https://api.smenube.ru").replace(/\/+$/, "");
@@ -31,57 +40,174 @@ type CreatedObject = {
   name: string;
   city: string;
   address: string | null;
+  type: string | null;
+  logoUrl: string | null;
   photos: string[];
 };
+
+type SuggestItem = { title: string; subtitle: string; value: string };
+
+type ObjectType = "production" | "warehouse" | "hub" | "sort" | "other";
+
+const TYPE_OPTIONS: Array<{
+  value: ObjectType;
+  label: string;
+  Icon: any;
+}> = [
+  { value: "production", label: "Производство", Icon: Factory },
+  { value: "warehouse", label: "Крупный склад", Icon: Warehouse },
+  { value: "hub", label: "Хаб", Icon: Boxes },
+  { value: "sort", label: "Сортировочный центр", Icon: SplitSquareVertical },
+  { value: "other", label: "Другое", Icon: HelpCircle },
+];
+
+function typeLabel(t: ObjectType) {
+  return TYPE_OPTIONS.find((x) => x.value === t)?.label ?? "Объект";
+}
 
 export default function NewObjectPage() {
   const router = useRouter();
 
-  const [name, setName] = useState("");
+  const [objectId, setObjectId] = useState<string | null>(null);
+
+  const [brandName, setBrandName] = useState("");
+  const [objType, setObjType] = useState<ObjectType>("warehouse");
+
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
 
-  const [photoUrlInput, setPhotoUrlInput] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
 
-  // UI-only
-  const [hasBuses, setHasBuses] = useState(false);
-  const [hasLunch, setHasLunch] = useState(false);
-  const [warmPlace, setWarmPlace] = useState(false);
-  const [hasLockerRoom, setHasLockerRoom] = useState(false);
-  const [hasBonuses, setHasBonuses] = useState(false);
-  const [extra, setExtra] = useState("");
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestItems, setSuggestItems] = useState<SuggestItem[]>([]);
+  const suggestReqId = useRef(0);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const canSave = useMemo(() => {
-    return name.trim().length > 0 && city.trim().length > 0 && address.trim().length > 0;
-  }, [name, city, address]);
+  const canCreate = useMemo(() => {
+    return brandName.trim().length > 0 && city.trim().length > 0 && address.trim().length > 0;
+  }, [brandName, city, address]);
 
-  function addPhotoUrl() {
+  const TitleIcon = TYPE_OPTIONS.find((x) => x.value === objType)?.Icon ?? HelpCircle;
+
+  async function ensureObject(): Promise<string> {
+    if (objectId) return objectId;
+
+    if (!canCreate) {
+      throw new Error("Заполни: бренд (название), город и адрес — нужно, чтобы создать объект перед загрузкой картинок.");
+    }
+
+    const created = await api<CreatedObject>(
+      "/objects",
+      { method: "POST" },
+      {
+        name: brandName.trim(),
+        city: city.trim(),
+        address: address.trim(),
+        type: objType,
+        logoUrl: logoUrl ?? undefined,
+        photos: photos,
+      }
+    );
+
+    setObjectId(created.id);
+    return created.id;
+  }
+
+  async function patchObject(id: string, patch: Partial<Pick<CreatedObject, "name" | "city" | "address" | "type" | "logoUrl" | "photos">>) {
+    await api<CreatedObject>(`/objects/${id}`, { method: "PATCH" }, patch);
+  }
+
+  async function presignUpload(kind: "logo" | "photo", id: string, contentType: string) {
+    const path = kind === "logo" ? "/uploads/object-logo" : "/uploads/object-photo";
+    return api<{ ok: true; uploadUrl: string; publicUrl: string }>(
+      path,
+      { method: "POST" },
+      { objectId: id, contentType }
+    );
+  }
+
+  async function putFile(uploadUrl: string, file: File) {
+    const r = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
+  }
+
+  async function onPickLogo(file: File | null) {
+    if (!file) return;
     setErr(null);
-    const u = photoUrlInput.trim();
-    if (!u) return;
+    setBusy(true);
 
     try {
-      new URL(u);
-    } catch {
-      setErr("Неверная ссылка на фото");
-      return;
+      const id = await ensureObject();
+      const presign = await presignUpload("logo", id, file.type);
+
+      await putFile(presign.uploadUrl, file);
+
+      setLogoUrl(presign.publicUrl);
+      await patchObject(id, { logoUrl: presign.publicUrl });
+    } catch (e: any) {
+      setErr(e?.message ?? "Не удалось загрузить логотип");
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function onPickPhotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
 
     if (photos.length >= 3) {
       setErr("Можно добавить максимум 3 фото.");
       return;
     }
 
-    setPhotos((prev) => [...prev, u]);
-    setPhotoUrlInput("");
+    setErr(null);
+    setBusy(true);
+
+    try {
+      const id = await ensureObject();
+
+      const remaining = 3 - photos.length;
+      const toUpload = Array.from(files).slice(0, remaining);
+
+      const uploaded: string[] = [];
+      for (const f of toUpload) {
+        const presign = await presignUpload("photo", id, f.type);
+        await putFile(presign.uploadUrl, f);
+        uploaded.push(presign.publicUrl);
+      }
+
+      const next = [...photos, ...uploaded].slice(0, 3);
+      setPhotos(next);
+
+      await patchObject(id, { photos: next });
+    } catch (e: any) {
+      setErr(e?.message ?? "Не удалось загрузить фото");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function removePhotoUrl(url: string) {
-    setPhotos((prev) => prev.filter((p) => p !== url));
+  async function removePhoto(url: string) {
+    const next = photos.filter((p) => p !== url);
+    setPhotos(next);
+
+    if (!objectId) return;
+
+    setBusy(true);
+    setErr(null);
+    try {
+      await patchObject(objectId, { photos: next });
+    } catch (e: any) {
+      setErr(e?.message ?? "Не удалось обновить фото");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onSave() {
@@ -89,18 +215,17 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      if (!canSave) throw new Error("Заполни: название, город и адрес");
+      if (!canCreate) throw new Error("Заполни: бренд (название), город и адрес");
 
-      await api<CreatedObject>(
-        "/objects",
-        { method: "POST" },
-        {
-          name: name.trim(),
-          city: city.trim(),
-          address: address.trim(),
-          photos,
-        }
-      );
+      const id = await ensureObject();
+      await patchObject(id, {
+        name: brandName.trim(),
+        city: city.trim(),
+        address: address.trim(),
+        type: objType,
+        logoUrl: logoUrl ?? null,
+        // photos уже синкаются по месту
+      });
 
       router.push("/dashboard/objects");
     } catch (e: any) {
@@ -110,13 +235,57 @@ export default function NewObjectPage() {
     }
   }
 
+  // --- Address suggestions (через /geo/suggest) ---
+  useEffect(() => {
+    const q = address.trim();
+    if (q.length < 3) {
+      setSuggestItems([]);
+      setSuggestOpen(false);
+      return;
+    }
+
+    const id = ++suggestReqId.current;
+
+    const t = setTimeout(() => {
+      api<{ ok: true; items: SuggestItem[] }>(`/geo/suggest?q=${encodeURIComponent(q)}`)
+        .then((d) => {
+          if (suggestReqId.current !== id) return;
+          const items = Array.isArray(d?.items) ? d.items : [];
+          setSuggestItems(items);
+          setSuggestOpen(items.length > 0);
+        })
+        .catch(() => {
+          // не ломаем UX если suggest недоступен
+          if (suggestReqId.current !== id) return;
+          setSuggestItems([]);
+          setSuggestOpen(false);
+        });
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [address]);
+
+  function onPickSuggestion(it: SuggestItem) {
+    setAddress(it.value || it.title);
+    setSuggestOpen(false);
+  }
+
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold">Создать объект</h1>
-          <p className="text-sm text-gray-500">Добавьте объект, чтобы создавать смены</p>
+          <p className="text-sm text-gray-500">
+            <span className="inline-flex items-center gap-2">
+              <TitleIcon className="h-4 w-4" />
+              {typeLabel(objType)}{" "}
+              {brandName.trim() ? (
+                <>
+                  «<span className="font-medium">{brandName.trim()}</span>»
+                </>
+              ) : null}
+            </span>
+          </p>
         </div>
 
         <Link
@@ -134,42 +303,145 @@ export default function NewObjectPage() {
       ) : null}
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-        {/* Basic info */}
+        {/* Basic */}
         <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Название объекта</label>
+            <label className="block text-sm font-medium mb-2">Brand name</label>
             <input
               type="text"
-              placeholder="Например: Склад на Тверской"
+              placeholder='Например: "Amazon" или "Adidas"'
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
               disabled={busy}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Город</label>
-            <input
-              type="text"
-              placeholder="Москва"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              disabled={busy}
-            />
+            <label className="block text-sm font-medium mb-2">Тип объекта</label>
+            <div className="relative">
+              <select
+                className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm pr-10"
+                value={objType}
+                onChange={(e) => setObjType(e.target.value as ObjectType)}
+                disabled={busy}
+              >
+                {TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                <TitleIcon className="h-4 w-4" />
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Адрес</label>
-            <input
-              type="text"
-              placeholder="Город, улица, дом"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              disabled={busy}
-            />
+          {/* Logo */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium">Логотип</label>
+
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50">
+                <ImageIcon className="h-4 w-4" />
+                <span>{busy ? "Загрузка…" : "Загрузить логотип"}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => onPickLogo(e.target.files?.[0] ?? null)}
+                />
+              </label>
+
+              {logoUrl ? (
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={logoUrl} alt="" className="h-10 w-10 rounded-md border border-gray-200 object-cover" />
+                  <button
+                    type="button"
+                    className="text-xs text-gray-600 hover:text-black"
+                    onClick={async () => {
+                      if (!objectId) {
+                        setLogoUrl(null);
+                        return;
+                      }
+                      setBusy(true);
+                      setErr(null);
+                      try {
+                        setLogoUrl(null);
+                        await patchObject(objectId, { logoUrl: null });
+                      } catch (e: any) {
+                        setErr(e?.message ?? "Не удалось удалить логотип");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={busy}
+                  >
+                    Удалить
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-500">Логотип пока не загружен</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Address */}
+        <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-2">Город</label>
+              <input
+                type="text"
+                placeholder="Москва"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            <div className="relative">
+              <label className="block text-sm font-medium mb-2">Адрес</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Начни вводить адрес…"
+                  className="w-full rounded-lg border border-gray-200 pl-9 pr-3 py-2 text-sm"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  onFocus={() => setSuggestOpen(suggestItems.length > 0)}
+                  onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                  disabled={busy}
+                />
+              </div>
+
+              {suggestOpen ? (
+                <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                  {suggestItems.map((it, idx) => (
+                    <button
+                      key={`${it.value}-${idx}`}
+                      type="button"
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onPickSuggestion(it)}
+                    >
+                      <div className="text-sm">{it.title || it.value}</div>
+                      {it.subtitle ? <div className="text-xs text-gray-500">{it.subtitle}</div> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="text-xs text-gray-500">
+            Позже добавим кнопку “Построить маршрут” → откроем Яндекс.Карты с этим адресом.
           </div>
         </div>
 
@@ -177,40 +449,35 @@ export default function NewObjectPage() {
         <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
           <div>
             <h2 className="text-sm font-medium mb-1">Фотографии объекта</h2>
-            <p className="text-xs text-gray-500">Пока добавляем ссылками (макс 3). Upload подключим после допила backend.</p>
+            <p className="text-xs text-gray-500">Максимум 3 фото</p>
           </div>
 
-          <div className="flex gap-2">
+          <label className="flex items-center justify-center h-32 rounded-lg border border-dashed border-gray-300 cursor-pointer hover:bg-gray-50 text-sm text-gray-500">
+            <span>{busy ? "Загрузка…" : "Нажмите, чтобы добавить фото"}</span>
             <input
-              type="url"
-              placeholder="https://... (ссылка на фото)"
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={photoUrlInput}
-              onChange={(e) => setPhotoUrlInput(e.target.value)}
-              disabled={busy}
-            />
-            <button
-              type="button"
-              className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
-              onClick={addPhotoUrl}
+              type="file"
+              multiple
+              accept="image/*"
+              className="hidden"
               disabled={busy || photos.length >= 3}
-            >
-              Добавить
-            </button>
-          </div>
+              onChange={(e) => onPickPhotos(e.target.files)}
+            />
+          </label>
 
           {photos.length === 0 ? (
             <div className="text-sm text-gray-500">Фото пока нет</div>
           ) : (
             <div className="flex gap-3 flex-wrap">
               {photos.map((url) => (
-                <div key={url} className="rounded-lg border border-gray-200 p-2 text-xs">
-                  <div className="max-w-[240px] truncate">{url}</div>
+                <div key={url} className="relative h-20 w-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="" className="h-20 w-20 object-cover" />
                   <button
                     type="button"
-                    className="mt-2 w-full rounded-md border border-gray-200 py-1 hover:bg-gray-50"
-                    onClick={() => removePhotoUrl(url)}
+                    className="absolute inset-x-0 bottom-0 bg-white/90 text-[11px] py-1 hover:bg-white"
+                    onClick={() => removePhoto(url)}
                     disabled={busy}
+                    title="Удалить"
                   >
                     Удалить
                   </button>
@@ -218,44 +485,6 @@ export default function NewObjectPage() {
               ))}
             </div>
           )}
-        </div>
-
-        {/* Features */}
-        <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
-          <h2 className="text-sm font-medium">Условия и удобства</h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            {[
-              ["Есть развозка / автобусы", hasBuses, setHasBuses],
-              ["Есть обеды", hasLunch, setHasLunch],
-              ["Тёплое помещение", warmPlace, setWarmPlace],
-              ["Есть раздевалка", hasLockerRoom, setHasLockerRoom],
-              ["Есть акции / бонусы", hasBonuses, setHasBonuses],
-            ].map(([label, val, setVal]: any) => (
-              <label key={label} className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-black"
-                  checked={val}
-                  onChange={(e) => setVal(e.target.checked)}
-                  disabled={busy}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Дополнительно (необязательно)</label>
-            <input
-              type="text"
-              placeholder="Например: бесплатный чай, парковка"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={extra}
-              onChange={(e) => setExtra(e.target.value)}
-              disabled={busy}
-            />
-          </div>
         </div>
 
         {/* Actions */}
@@ -270,7 +499,7 @@ export default function NewObjectPage() {
           <button
             type="button"
             className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
-            disabled={busy || !canSave}
+            disabled={busy || !canCreate}
             onClick={onSave}
           >
             {busy ? "Сохранение…" : "Сохранить"}
