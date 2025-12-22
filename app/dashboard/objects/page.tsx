@@ -7,11 +7,11 @@ import { api } from "@/lib/api";
 type ObjectItem = {
   id: string;
   name: string;
-  city?: string | null;
-  address?: string | null;
+  city: string;
+  address: string | null;
   type?: string | null;
   logoUrl?: string | null;
-  photos?: string[] | null;
+  photos?: string[];
 };
 
 export default function ObjectsPage() {
@@ -26,10 +26,8 @@ export default function ObjectsPage() {
     setErr(null);
 
     api<ObjectItem[]>("/objects")
-      .then((data: any) => {
-        // поддержим оба формата: массив или { ok, objects }
-        const list = Array.isArray(data) ? data : (data?.objects ?? []);
-        if (alive) setObjects(list);
+      .then((list) => {
+        if (alive) setObjects(Array.isArray(list) ? list : []);
       })
       .catch((e: any) => {
         if (alive) setErr(e?.message ?? "Ошибка загрузки объектов");
@@ -79,8 +77,8 @@ export default function ObjectsPage() {
             >
               <div className="font-medium">{object.name}</div>
               <div className="text-sm text-gray-500">
-                {(object.city ? `${object.city}, ` : "")}
-                {object.address ?? ""}
+                {object.city}
+                {object.address ? `, ${object.address}` : ""}
               </div>
             </div>
           ))}
