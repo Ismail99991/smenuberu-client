@@ -2,16 +2,33 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+
+function apiBase() {
+  return (process.env.NEXT_PUBLIC_API_URL ?? "https://api.smenube.ru").replace(/\/+$/, "");
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${apiBase()}${path}`, {
+    ...init,
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? data?.message ?? `HTTP ${res.status}`);
+  return data as T;
+}
 
 type ObjectItem = {
   id: string;
   name: string;
   city: string;
   address: string | null;
-  type?: string | null;
-  logoUrl?: string | null;
-  photos?: string[];
+  photos: string[];
 };
 
 export default function ObjectsPage() {
@@ -43,7 +60,6 @@ export default function ObjectsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Объекты</h1>
 
