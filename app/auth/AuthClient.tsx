@@ -70,7 +70,7 @@ export default function AuthClient() {
   }, []);
 
   function startLogin() {
-    window.location.href = `${apiBase()}/auth/yandex/start`;
+    window.location.href = `${apiBase()}/auth/yandex/client/start?next=${encodeURIComponent(nextUrl)}`;
   }
 
   async function logout() {
