@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { uploadObjectPhoto } from "@/lib/uploadObjectPhoto";
 
-type ApiCreatedObject = { id?: string; object?: { id: string } };
+type CreatedObject = {
+  id: string;
+  name: string;
+  city: string;
+  address: string | null;
+  photos: string[];
+};
 
 export default function NewObjectPage() {
   const router = useRouter();
@@ -19,7 +25,7 @@ export default function NewObjectPage() {
 
   const [photos, setPhotos] = useState<string[]>([]);
 
-  // “Условия и удобства” — пока UI-only, как у вас принято
+  // UI-only (пока не сохраняем на backend)
   const [hasBuses, setHasBuses] = useState(false);
   const [hasLunch, setHasLunch] = useState(false);
   const [warmPlace, setWarmPlace] = useState(false);
@@ -34,44 +40,45 @@ export default function NewObjectPage() {
     return name.trim().length > 0 && city.trim().length > 0 && address.trim().length > 0;
   }, [name, city, address]);
 
-  async function createOrGetDraftId(): Promise<string> {
+  async function ensureObjectId(): Promise<string> {
     if (objectId) return objectId;
 
     if (!canSave) {
       throw new Error("Заполни: название, город и адрес (нужно, чтобы создать объект перед загрузкой фото).");
     }
 
-    // Создаём объект до загрузки фото, чтобы получить objectId
-    const created = await api<ApiCreatedObject>("/objects", {
+    const created = await api<CreatedObject>("/objects", {
       method: "POST",
       json: {
         name: name.trim(),
         city: city.trim(),
         address: address.trim(),
-        // photos можно отправить пустыми
         photos: [],
       },
     });
 
-    const id = created?.id ?? created?.object?.id;
-    if (!id) throw new Error("API не вернул id объекта");
-
-    setObjectId(id);
-    return id;
+    setObjectId(created.id);
+    return created.id;
   }
 
-  async function patchObject(id: string, nextPhotos?: string[]) {
-    await api<any>(`/objects/${id}`, {
+  async function patchPhotos(id: string, nextPhotos: string[]) {
+    await api<CreatedObject>(`/objects/${id}`, {
+      method: "PATCH",
+      json: {
+        // важно: photos заменяются ТОЛЬКО если передали поле photos
+        photos: nextPhotos,
+      },
+    });
+  }
+
+  async function patchMainFields(id: string) {
+    await api<CreatedObject>(`/objects/${id}`, {
       method: "PATCH",
       json: {
         name: name.trim(),
         city: city.trim(),
         address: address.trim(),
-        photos: nextPhotos ?? photos,
-
-        // Эти поля пока не отправляем, чтобы не нарушать ваш принцип “логика в API”
-        // Когда на backend появятся реальные поля — просто добавим сюда:
-        // hasBuses, hasLunch, highRate, ...
+        // photos не трогаем
       },
     });
   }
@@ -79,23 +86,30 @@ export default function NewObjectPage() {
   async function onPickPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
 
+    if (photos.length >= 3) {
+      setErr("Можно добавить максимум 3 фото.");
+      return;
+    }
+
     setErr(null);
     setBusy(true);
 
     try {
-      const id = await createOrGetDraftId();
+      const id = await ensureObjectId();
+
+      const remaining = 3 - photos.length;
+      const toUpload = Array.from(files).slice(0, remaining);
 
       const uploaded: string[] = [];
-      for (const file of Array.from(files)) {
+      for (const file of toUpload) {
         const url = await uploadObjectPhoto(id, file);
         uploaded.push(url);
       }
 
-      const next = [...photos, ...uploaded];
+      const next = [...photos, ...uploaded].slice(0, 3);
       setPhotos(next);
 
-      // сохраняем URLs в объект
-      await patchObject(id, next);
+      await patchPhotos(id, next);
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить фото");
     } finally {
@@ -107,15 +121,16 @@ export default function NewObjectPage() {
     const next = photos.filter((p) => p !== url);
     setPhotos(next);
 
-    if (objectId) {
-      try {
-        setBusy(true);
-        await patchObject(objectId, next);
-      } catch (e: any) {
-        setErr(e?.message ?? "Не удалось обновить фото");
-      } finally {
-        setBusy(false);
-      }
+    if (!objectId) return;
+
+    setBusy(true);
+    setErr(null);
+    try {
+      await patchPhotos(objectId, next);
+    } catch (e: any) {
+      setErr(e?.message ?? "Не удалось обновить фото");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -126,9 +141,8 @@ export default function NewObjectPage() {
     try {
       if (!canSave) throw new Error("Заполни: название, город и адрес");
 
-      // Если объект ещё не создан (фото не загружали) — создаём сейчас
       if (!objectId) {
-        const created = await api<ApiCreatedObject>("/objects", {
+        const created = await api<CreatedObject>("/objects", {
           method: "POST",
           json: {
             name: name.trim(),
@@ -137,13 +151,10 @@ export default function NewObjectPage() {
             photos,
           },
         });
-
-        const id = created?.id ?? created?.object?.id;
-        if (!id) throw new Error("API не вернул id объекта");
-
-        setObjectId(id);
+        setObjectId(created.id);
       } else {
-        await patchObject(objectId, photos);
+        await patchMainFields(objectId);
+        // photos уже синхронизируем при добавлении/удалении
       }
 
       router.push("/dashboard/objects");
@@ -208,7 +219,7 @@ export default function NewObjectPage() {
             <label className="block text-sm font-medium mb-2">Адрес</label>
             <input
               type="text"
-              placeholder="Город, улица, дом"
+              placeholder="Улица, дом (например: Тверская 10)"
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -221,7 +232,7 @@ export default function NewObjectPage() {
         <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
           <div>
             <h2 className="text-sm font-medium mb-1">Фотографии объекта</h2>
-            <p className="text-xs text-gray-500">Добавьте фото входа, территории или рабочего места</p>
+            <p className="text-xs text-gray-500">Максимум 3 фото</p>
           </div>
 
           <label className="flex items-center justify-center h-32 rounded-lg border border-dashed border-gray-300 cursor-pointer hover:bg-gray-50 text-sm text-gray-500">
@@ -258,9 +269,7 @@ export default function NewObjectPage() {
             </div>
           )}
 
-          {objectId ? (
-            <div className="text-xs text-gray-500">ID объекта: {objectId}</div>
-          ) : null}
+          {objectId ? <div className="text-xs text-gray-500">ID объекта: {objectId}</div> : null}
         </div>
 
         {/* Features (UI-only пока) */}
@@ -269,57 +278,27 @@ export default function NewObjectPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-black"
-                checked={hasBuses}
-                onChange={(e) => setHasBuses(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" className="h-4 w-4 accent-black" checked={hasBuses} onChange={(e) => setHasBuses(e.target.checked)} disabled={busy} />
               <span>Есть развозка / автобусы</span>
             </label>
 
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-black"
-                checked={hasLunch}
-                onChange={(e) => setHasLunch(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" className="h-4 w-4 accent-black" checked={hasLunch} onChange={(e) => setHasLunch(e.target.checked)} disabled={busy} />
               <span>Есть обеды</span>
             </label>
 
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-black"
-                checked={warmPlace}
-                onChange={(e) => setWarmPlace(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" className="h-4 w-4 accent-black" checked={warmPlace} onChange={(e) => setWarmPlace(e.target.checked)} disabled={busy} />
               <span>Тёплое помещение</span>
             </label>
 
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-black"
-                checked={hasLockerRoom}
-                onChange={(e) => setHasLockerRoom(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" className="h-4 w-4 accent-black" checked={hasLockerRoom} onChange={(e) => setHasLockerRoom(e.target.checked)} disabled={busy} />
               <span>Есть раздевалка</span>
             </label>
 
             <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-black"
-                checked={hasBonuses}
-                onChange={(e) => setHasBonuses(e.target.checked)}
-                disabled={busy}
-              />
+              <input type="checkbox" className="h-4 w-4 accent-black" checked={hasBonuses} onChange={(e) => setHasBonuses(e.target.checked)} disabled={busy} />
               <span>Есть акции / бонусы</span>
             </label>
           </div>
@@ -334,10 +313,6 @@ export default function NewObjectPage() {
               onChange={(e) => setExtra(e.target.value)}
               disabled={busy}
             />
-          </div>
-
-          <div className="text-xs text-gray-500">
-            Эти поля пока UI-only. Когда добавим реальные поля в Object на backend — сохраним их в API.
           </div>
         </div>
 
