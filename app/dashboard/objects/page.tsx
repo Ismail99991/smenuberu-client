@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Trash } from "lucide-react";
 
 function apiBase() {
   return (process.env.NEXT_PUBLIC_API_URL ?? "https://api.smenube.ru").replace(/\/+$/, "");
@@ -35,6 +36,7 @@ export default function ObjectsPage() {
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -57,6 +59,22 @@ export default function ObjectsPage() {
       alive = false;
     };
   }, []);
+
+  async function removeObject(id: string) {
+    if (!confirm("Удалить объект? Это действие нельзя отменить.")) return;
+
+    setBusyId(id);
+    setErr(null);
+
+    try {
+      await api(`/objects/${id}`, { method: "DELETE" });
+      setObjects((prev) => prev.filter((o) => o.id !== id));
+    } catch (e: any) {
+      setErr(e?.message ?? "Не удалось удалить объект");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -89,13 +107,25 @@ export default function ObjectsPage() {
           {objects.map((object) => (
             <div
               key={object.id}
-              className="rounded-xl bg-white p-6 border border-gray-200 hover:shadow-sm transition"
+              className="flex items-center justify-between rounded-xl bg-white p-6 border border-gray-200 hover:shadow-sm transition"
             >
-              <div className="font-medium">{object.name}</div>
-              <div className="text-sm text-gray-500">
-                {object.city}
-                {object.address ? `, ${object.address}` : ""}
+              <div>
+                <div className="font-medium">{object.name}</div>
+                <div className="text-sm text-gray-500">
+                  {object.city}
+                  {object.address ? `, ${object.address}` : ""}
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => removeObject(object.id)}
+                disabled={busyId === object.id}
+                title="Удалить объект"
+                className="rounded-lg p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-50 transition"
+              >
+                <Trash className="h-5 w-5" />
+              </button>
             </div>
           ))}
         </div>
