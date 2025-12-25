@@ -68,7 +68,9 @@ function typeLabel(t: ObjectType) {
 export default function NewObjectPage() {
   const router = useRouter();
 
-  const [objectId, setObjectId] = useState<string | null>(null);
+  // draftId живёт только на этой странице — позволяет грузить файлы до создания объекта
+  const draftIdRef = useRef<string>(crypto.randomUUID());
+  const draftId = draftIdRef.current;
 
   const [brandName, setBrandName] = useState("");
   const [objType, setObjType] = useState<ObjectType>("warehouse");
@@ -92,50 +94,28 @@ export default function NewObjectPage() {
 
   const TitleIcon = TYPE_OPTIONS.find((x) => x.value === objType)?.Icon ?? HelpCircle;
 
-  async function ensureObject(): Promise<string> {
-    if (objectId) return objectId;
-
-    if (!canCreate) {
-      throw new Error("Заполни: бренд (название), город и адрес — нужно, чтобы создать объект перед загрузкой картинок.");
-    }
-
-    const created = await api<CreatedObject>(
-      "/objects",
-      { method: "POST" },
-      {
-        name: brandName.trim(),
-        city: city.trim(),
-        address: address.trim(),
-        type: objType,
-        logoUrl: logoUrl ?? undefined,
-        photos: photos,
-      }
-    );
-
-    setObjectId(created.id);
-    return created.id;
-  }
-
-  async function patchObject(id: string, patch: Partial<Pick<CreatedObject, "name" | "city" | "address" | "type" | "logoUrl" | "photos">>) {
-    await api<CreatedObject>(`/objects/${id}`, { method: "PATCH" }, patch);
-  }
-
-  async function presignUpload(kind: "logo" | "photo", id: string, contentType: string) {
-    const path = kind === "logo" ? "/uploads/object-logo" : "/uploads/object-photo";
-    return api<{ ok: true; uploadUrl: string; publicUrl: string }>(
+  async function presignDraftUpload(kind: "logo" | "photo", contentType: string) {
+    const path = kind === "logo" ? "/uploads/draft-logo" : "/uploads/draft-photo";
+    return api<{ ok: true; uploadUrl: string; publicUrl: string; path: string }>(
       path,
       { method: "POST" },
-      { objectId: id, contentType }
+      { draftId, contentType }
     );
   }
 
   async function putFile(uploadUrl: string, file: File) {
+    const ct = file.type && file.type.trim() ? file.type : "application/octet-stream";
+
     const r = await fetch(uploadUrl, {
       method: "PUT",
-      headers: { "Content-Type": file.type },
+      headers: { "Content-Type": ct },
       body: file,
     });
-    if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
+
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      throw new Error(`Upload failed: ${r.status} ${text}`.trim());
+    }
   }
 
   async function onPickLogo(file: File | null) {
@@ -144,13 +124,9 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      const id = await ensureObject();
-      const presign = await presignUpload("logo", id, file.type);
-
+      const presign = await presignDraftUpload("logo", file.type || "application/octet-stream");
       await putFile(presign.uploadUrl, file);
-
-      setLogoUrl(presign.publicUrl);
-      await patchObject(id, { logoUrl: presign.publicUrl });
+      setLogoUrl(presign.publicUrl); // только локально, без сохранения в БД
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить логотип");
     } finally {
@@ -170,22 +146,17 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      const id = await ensureObject();
-
       const remaining = 3 - photos.length;
       const toUpload = Array.from(files).slice(0, remaining);
 
       const uploaded: string[] = [];
       for (const f of toUpload) {
-        const presign = await presignUpload("photo", id, f.type);
+        const presign = await presignDraftUpload("photo", f.type || "application/octet-stream");
         await putFile(presign.uploadUrl, f);
         uploaded.push(presign.publicUrl);
       }
 
-      const next = [...photos, ...uploaded].slice(0, 3);
-      setPhotos(next);
-
-      await patchObject(id, { photos: next });
+      setPhotos((prev) => [...prev, ...uploaded].slice(0, 3));
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить фото");
     } finally {
@@ -193,21 +164,8 @@ export default function NewObjectPage() {
     }
   }
 
-  async function removePhoto(url: string) {
-    const next = photos.filter((p) => p !== url);
-    setPhotos(next);
-
-    if (!objectId) return;
-
-    setBusy(true);
-    setErr(null);
-    try {
-      await patchObject(objectId, { photos: next });
-    } catch (e: any) {
-      setErr(e?.message ?? "Не удалось обновить фото");
-    } finally {
-      setBusy(false);
-    }
+  function removePhoto(url: string) {
+    setPhotos((prev) => prev.filter((p) => p !== url));
   }
 
   async function onSave() {
@@ -217,14 +175,14 @@ export default function NewObjectPage() {
     try {
       if (!canCreate) throw new Error("Заполни: бренд (название), город и адрес");
 
-      const id = await ensureObject();
-      await patchObject(id, {
+      // Создаём объект ТОЛЬКО здесь
+      await api<CreatedObject>("/objects", { method: "POST" }, {
         name: brandName.trim(),
         city: city.trim(),
         address: address.trim(),
         type: objType,
         logoUrl: logoUrl ?? null,
-        // photos уже синкаются по месту
+        photos,
       });
 
       router.push("/dashboard/objects");
@@ -255,7 +213,6 @@ export default function NewObjectPage() {
           setSuggestOpen(items.length > 0);
         })
         .catch(() => {
-          // не ломаем UX если suggest недоступен
           if (suggestReqId.current !== id) return;
           setSuggestItems([]);
           setSuggestOpen(false);
@@ -362,22 +319,7 @@ export default function NewObjectPage() {
                   <button
                     type="button"
                     className="text-xs text-gray-600 hover:text-black"
-                    onClick={async () => {
-                      if (!objectId) {
-                        setLogoUrl(null);
-                        return;
-                      }
-                      setBusy(true);
-                      setErr(null);
-                      try {
-                        setLogoUrl(null);
-                        await patchObject(objectId, { logoUrl: null });
-                      } catch (e: any) {
-                        setErr(e?.message ?? "Не удалось удалить логотип");
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    onClick={() => setLogoUrl(null)}
                     disabled={busy}
                   >
                     Удалить
