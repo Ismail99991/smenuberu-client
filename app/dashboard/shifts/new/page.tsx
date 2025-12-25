@@ -9,19 +9,66 @@ function getApiBaseUrl() {
   return process.env.NEXT_PUBLIC_API_URL ?? "https://smenuberu-api.onrender.com";
 }
 
+function addDaysISO(dateISO: string, daysToAdd: number) {
+  // dateISO: "YYYY-MM-DD"
+  const [y, m, d] = dateISO.split("-").map((x) => Number(x));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + daysToAdd);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 export default function NewShiftPage() {
   const router = useRouter();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
+
+  const [createdIds, setCreatedIds] = useState<string[]>([]);
+
+  // NEW: multi-day mode
+  const [multiDay, setMultiDay] = useState(false);
+  const [daysCount, setDaysCount] = useState<number>(3); // по умолчанию 3 дня
 
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
+
+  async function createOne(values: ShiftFormValues, dateISO: string) {
+    const pay = Number(values.pay);
+    const res = await fetch(`${apiBaseUrl}/slots`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        objectId: values.objectId,
+        title: values.title,
+        date: dateISO,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        pay: Math.round(pay),
+        type: values.type,
+        hot: values.hot,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`API error: ${res.status}${text ? ` — ${text}` : ""}`);
+    }
+
+    const created = (await res.json()) as { id?: string };
+    if (!created?.id) throw new Error("API: slot created but id missing");
+    return created.id;
+  }
 
   async function handleCreate(values: ShiftFormValues) {
     setSubmitting(true);
     setError(null);
-    setCreatedId(null);
+    setCreatedIds([]);
 
     try {
       const pay = Number(values.pay);
@@ -33,31 +80,17 @@ export default function NewShiftPage() {
       if (!values.endTime) throw new Error("Выбери время окончания.");
       if (!Number.isFinite(pay) || pay <= 0) throw new Error("Оплата должна быть числом больше 0.");
 
-      const res = await fetch(`${apiBaseUrl}/slots`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        body: JSON.stringify({
-          objectId: values.objectId,
-          title: values.title,
-          date: values.date,
-          startTime: values.startTime,
-          endTime: values.endTime,
-          pay: Math.round(pay),
-          type: values.type, // ✅ из формы
-          hot: values.hot // ✅ из формы
-        })
-      });
+      // NEW: validate multi-day
+      const n = multiDay ? Math.max(1, Math.min(30, Number(daysCount) || 1)) : 1;
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`API error: ${res.status}${text ? ` — ${text}` : ""}`);
+      const ids: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const dateISO = addDaysISO(values.date, i);
+        const id = await createOne(values, dateISO);
+        ids.push(id);
       }
 
-      const created = (await res.json()) as { id?: string };
-      setCreatedId(created?.id ?? null);
+      setCreatedIds(ids);
     } catch (e: any) {
       setError(e?.message ?? "Ошибка создания смены");
     } finally {
@@ -71,10 +104,12 @@ export default function NewShiftPage() {
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold">Создать смену</h1>
-          <p className="text-sm text-gray-500">Смена создаётся в API и появится в списке</p>
+          <p className="text-sm text-gray-500">
+            Смена создаётся в API и появится в списке
+            {multiDay ? " (несколько дней подряд)" : ""}
+          </p>
         </div>
 
-        {/* Без текстовых ссылок */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -98,6 +133,34 @@ export default function NewShiftPage() {
         </div>
       </div>
 
+      {/* Multi-day controls */}
+      <div className="rounded-xl bg-white p-4 border border-gray-200 flex flex-col sm:flex-row sm:items-center gap-3">
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={multiDay}
+            onChange={(e) => setMultiDay(e.target.checked)}
+            disabled={submitting}
+          />
+          <span className="font-medium">Открыть слоты на несколько дней подряд</span>
+        </label>
+
+        <div className="sm:ml-auto flex items-center gap-2">
+          <span className="text-sm text-gray-500">Дней:</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={daysCount}
+            onChange={(e) => setDaysCount(Number(e.target.value))}
+            disabled={!multiDay || submitting}
+            className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <span className="text-xs text-gray-500">(1–30)</span>
+        </div>
+      </div>
+
       {/* Alerts */}
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-start gap-2">
@@ -109,13 +172,18 @@ export default function NewShiftPage() {
         </div>
       ) : null}
 
-      {createdId ? (
+      {createdIds.length > 0 ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 flex items-start gap-2">
           <CheckCircle2 className="h-5 w-5 mt-0.5" />
           <div className="min-w-0">
-            <div className="font-medium">Смена создана</div>
+            <div className="font-medium">
+              Создано смен: {createdIds.length}
+            </div>
             <div className="break-words">
-              ID: <span className="font-mono">{createdId}</span>
+              ID:{" "}
+              <span className="font-mono">
+                {createdIds.join(", ")}
+              </span>
             </div>
           </div>
         </div>
@@ -128,7 +196,7 @@ export default function NewShiftPage() {
           submitting={submitting}
           onCancel={() => router.push("/dashboard/shifts")}
           onSubmit={handleCreate}
-          submitLabel={submitting ? "Сохранение…" : "Сохранить"}
+          submitLabel={submitting ? "Сохранение…" : multiDay ? "Создать" : "Сохранить"}
         />
       </div>
     </div>
