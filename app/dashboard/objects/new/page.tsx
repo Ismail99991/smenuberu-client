@@ -43,9 +43,19 @@ type CreatedObject = {
   type: string | null;
   logoUrl: string | null;
   photos: string[];
+  lat?: number | null;
+  lng?: number | null;
 };
 
 type SuggestItem = { title: string; subtitle: string; value: string };
+
+// ответ геокодинга (backend должен отдать это)
+type GeocodeResponse = {
+  ok: true;
+  lat: number | null;
+  lng: number | null;
+  address?: string; // нормализованный адрес (опционально)
+};
 
 type ObjectType = "production" | "warehouse" | "hub" | "sort" | "other";
 
@@ -77,6 +87,10 @@ export default function NewObjectPage() {
 
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
+
+  // ✅ координаты адреса (будут использованы для пинов на карте)
+  const [selectedLat, setSelectedLat] = useState<number | null>(null);
+  const [selectedLng, setSelectedLng] = useState<number | null>(null);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
@@ -168,6 +182,14 @@ export default function NewObjectPage() {
     setPhotos((prev) => prev.filter((p) => p !== url));
   }
 
+  // ✅ Геокодим выбранный адрес → lat/lng
+  async function geocodeAddress(fullAddress: string) {
+    // backend endpoint: GET /geo/geocode?address=...
+    // должен вернуть { ok:true, lat, lng, address? }
+    const r = await api<GeocodeResponse>(`/geo/geocode?address=${encodeURIComponent(fullAddress)}`, { method: "GET" });
+    return r;
+  }
+
   async function onSave() {
     setErr(null);
     setBusy(true);
@@ -183,6 +205,9 @@ export default function NewObjectPage() {
         type: objType,
         logoUrl: logoUrl ?? null,
         photos,
+        // ✅ координаты (если есть)
+        lat: selectedLat,
+        lng: selectedLng,
       });
 
       router.push("/dashboard/objects");
@@ -222,9 +247,41 @@ export default function NewObjectPage() {
     return () => clearTimeout(t);
   }, [address]);
 
-  function onPickSuggestion(it: SuggestItem) {
-    setAddress(it.value || it.title);
+  async function onPickSuggestion(it: SuggestItem) {
+    const nextAddress = (it.value || it.title).trim();
+
+    setAddress(nextAddress);
     setSuggestOpen(false);
+
+    // адрес поменялся → координаты пересчитаем
+    setSelectedLat(null);
+    setSelectedLng(null);
+
+    // ✅ геокодим только если есть город + адрес
+    const c = city.trim();
+    if (!c || nextAddress.length < 3) return;
+
+    setBusy(true);
+    setErr(null);
+    try {
+      const full = `${c}, ${nextAddress}`;
+      const g = await geocodeAddress(full);
+
+      setSelectedLat(g.lat ?? null);
+      setSelectedLng(g.lng ?? null);
+
+      // если backend вернул нормализованный адрес — можно подменить (не обязательно)
+      if (g.address && typeof g.address === "string" && g.address.trim()) {
+        // оставляем твою логику, просто аккуратно улучшаем
+        setAddress(g.address.trim());
+      }
+    } catch (e: any) {
+      // не ломаем UX: просто без координат
+      setSelectedLat(null);
+      setSelectedLng(null);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -342,7 +399,12 @@ export default function NewObjectPage() {
                 placeholder="Москва"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={city}
-                onChange={(e) => setCity(e.target.value)}
+                onChange={(e) => {
+                  setCity(e.target.value);
+                  // если город меняется — координаты становятся потенциально неверными
+                  setSelectedLat(null);
+                  setSelectedLng(null);
+                }}
                 disabled={busy}
               />
             </div>
@@ -356,7 +418,11 @@ export default function NewObjectPage() {
                   placeholder="Начни вводить адрес…"
                   className="w-full rounded-lg border border-gray-200 pl-9 pr-3 py-2 text-sm"
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    setSelectedLat(null);
+                    setSelectedLng(null);
+                  }}
                   onFocus={() => setSuggestOpen(suggestItems.length > 0)}
                   onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
                   disabled={busy}
@@ -382,9 +448,17 @@ export default function NewObjectPage() {
             </div>
           </div>
 
-          <div className="text-xs text-gray-500">
-            Позже добавим кнопку “Построить маршрут” → откроем Яндекс.Карты с этим адресом.
-          </div>
+          {/* ✅ маленькая подсказка про координаты */}
+          {selectedLat !== null && selectedLng !== null ? (
+            <div className="text-xs text-gray-500">
+              Координаты сохранены:{" "}
+              <span className="font-mono">{selectedLat.toFixed(6)}, {selectedLng.toFixed(6)}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500">
+              Выбери подсказку адреса — тогда мы сможем поставить пин на карте.
+            </div>
+          )}
         </div>
 
         {/* Photos */}
