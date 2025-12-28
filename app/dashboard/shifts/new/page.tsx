@@ -178,7 +178,7 @@ export default function NewShiftPage() {
         }
       >
         <ShiftForm
-          mode="create"          {/* 🔑 ВАЖНО */}
+          mode="create"    
           submitting={submitting}
           onCancel={() =>
             router.push("/dashboard/shifts")
