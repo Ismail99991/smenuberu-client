@@ -11,10 +11,11 @@ type AdminShift = {
 };
 
 async function getAdminShifts(): Promise<AdminShift[]> {
-  const cookieStore = cookies();
+  // ⚠️ Next.js 16+: cookies() — async
+  const cookieStore = await cookies();
   const session = cookieStore.get("smenuberu_session");
 
-  // ⛔ нет сессии — не заказчик, не пускаем
+  // ⛔ Нет сессии — редирект на логин
   if (!session) {
     redirect("/login");
   }
@@ -22,11 +23,12 @@ async function getAdminShifts(): Promise<AdminShift[]> {
   const res = await fetch("https://api.smenube.ru/slots/created", {
     cache: "no-store",
     headers: {
+      // прокидываем cookie в API
       Cookie: `smenuberu_session=${session.value}`,
     },
   });
 
-  // ⛔ API не пустило — считаем, что пользователь неавторизован
+  // ⛔ API не пустило — считаем, что пользователь не авторизован
   if (res.status === 401 || res.status === 403) {
     redirect("/login");
   }
@@ -106,6 +108,7 @@ export default async function ShiftsPage() {
                       transition
                     "
                     title="Редактировать смену"
+                    aria-label="Редактировать смену"
                   >
                     <Pencil className="h-4 w-4" />
                   </Link>
