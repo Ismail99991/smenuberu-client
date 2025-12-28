@@ -49,12 +49,11 @@ type CreatedObject = {
 
 type SuggestItem = { title: string; subtitle: string; value: string };
 
-// ответ геокодинга (backend должен отдать это)
 type GeocodeResponse = {
   ok: true;
   lat: number | null;
   lng: number | null;
-  address?: string; // нормализованный адрес (опционально)
+  address?: string;
 };
 
 type ObjectType = "production" | "warehouse" | "hub" | "sort" | "other";
@@ -78,7 +77,6 @@ function typeLabel(t: ObjectType) {
 export default function NewObjectPage() {
   const router = useRouter();
 
-  // draftId живёт только на этой странице — позволяет грузить файлы до создания объекта
   const draftIdRef = useRef<string>(crypto.randomUUID());
   const draftId = draftIdRef.current;
 
@@ -88,7 +86,6 @@ export default function NewObjectPage() {
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
 
-  // ✅ координаты адреса (будут использованы для пинов на карте)
   const [selectedLat, setSelectedLat] = useState<number | null>(null);
   const [selectedLng, setSelectedLng] = useState<number | null>(null);
 
@@ -98,6 +95,9 @@ export default function NewObjectPage() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestItems, setSuggestItems] = useState<SuggestItem[]>([]);
   const suggestReqId = useRef(0);
+
+  // ✅ подавляем автосаджест при программном setAddress (выбор подсказки / нормализация)
+  const suppressSuggestRef = useRef(false);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -140,7 +140,7 @@ export default function NewObjectPage() {
     try {
       const presign = await presignDraftUpload("logo", file.type || "application/octet-stream");
       await putFile(presign.uploadUrl, file);
-      setLogoUrl(presign.publicUrl); // только локально, без сохранения в БД
+      setLogoUrl(presign.publicUrl);
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить логотип");
     } finally {
@@ -182,12 +182,8 @@ export default function NewObjectPage() {
     setPhotos((prev) => prev.filter((p) => p !== url));
   }
 
-  // ✅ Геокодим выбранный адрес → lat/lng
   async function geocodeAddress(fullAddress: string) {
-    // backend endpoint: GET /geo/geocode?address=...
-    // должен вернуть { ok:true, lat, lng, address? }
-    const r = await api<GeocodeResponse>(`/geo/geocode?address=${encodeURIComponent(fullAddress)}`, { method: "GET" });
-    return r;
+    return api<GeocodeResponse>(`/geo/geocode?address=${encodeURIComponent(fullAddress)}`, { method: "GET" });
   }
 
   async function onSave() {
@@ -197,18 +193,20 @@ export default function NewObjectPage() {
     try {
       if (!canCreate) throw new Error("Заполни: бренд (название), город и адрес");
 
-      // Создаём объект ТОЛЬКО здесь
-      await api<CreatedObject>("/objects", { method: "POST" }, {
-        name: brandName.trim(),
-        city: city.trim(),
-        address: address.trim(),
-        type: objType,
-        logoUrl: logoUrl ?? null,
-        photos,
-        // ✅ координаты (если есть)
-        lat: selectedLat,
-        lng: selectedLng,
-      });
+      await api<CreatedObject>(
+        "/objects",
+        { method: "POST" },
+        {
+          name: brandName.trim(),
+          city: city.trim(),
+          address: address.trim(),
+          type: objType,
+          logoUrl: logoUrl ?? null,
+          photos,
+          lat: selectedLat,
+          lng: selectedLng,
+        }
+      );
 
       router.push("/dashboard/objects");
     } catch (e: any) {
@@ -220,6 +218,13 @@ export default function NewObjectPage() {
 
   // --- Address suggestions (через /geo/suggest) ---
   useEffect(() => {
+    // ✅ если адрес установили программно (клик по подсказке / нормализация) —
+    // не запускаем suggest, иначе будет ощущение "опять предлагает"
+    if (suppressSuggestRef.current) {
+      suppressSuggestRef.current = false;
+      return;
+    }
+
     const q = address.trim();
     if (q.length < 3) {
       setSuggestItems([]);
@@ -250,14 +255,16 @@ export default function NewObjectPage() {
   async function onPickSuggestion(it: SuggestItem) {
     const nextAddress = (it.value || it.title).trim();
 
-    setAddress(nextAddress);
+    // ✅ закрываем и очищаем dropdown сразу,
+    // и подавляем повторный suggest на программный setAddress
     setSuggestOpen(false);
+    setSuggestItems([]);
+    suppressSuggestRef.current = true;
+    setAddress(nextAddress);
 
-    // адрес поменялся → координаты пересчитаем
     setSelectedLat(null);
     setSelectedLng(null);
 
-    // ✅ геокодим только если есть город + адрес
     const c = city.trim();
     if (!c || nextAddress.length < 3) return;
 
@@ -270,13 +277,16 @@ export default function NewObjectPage() {
       setSelectedLat(g.lat ?? null);
       setSelectedLng(g.lng ?? null);
 
-      // если backend вернул нормализованный адрес — можно подменить (не обязательно)
+      // ✅ если backend вернул нормализованный адрес — можно подменить,
+      // но тоже без повторного suggest
       if (g.address && typeof g.address === "string" && g.address.trim()) {
-        // оставляем твою логику, просто аккуратно улучшаем
-        setAddress(g.address.trim());
+        const normalized = g.address.trim();
+        if (normalized !== nextAddress) {
+          suppressSuggestRef.current = true;
+          setAddress(normalized);
+        }
       }
-    } catch (e: any) {
-      // не ломаем UX: просто без координат
+    } catch {
       setSelectedLat(null);
       setSelectedLng(null);
     } finally {
@@ -311,9 +321,7 @@ export default function NewObjectPage() {
       </div>
 
       {err ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {err}
-        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{err}</div>
       ) : null}
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
@@ -372,7 +380,11 @@ export default function NewObjectPage() {
               {logoUrl ? (
                 <div className="flex items-center gap-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={logoUrl} alt="" className="h-10 w-10 rounded-md border border-gray-200 object-cover" />
+                  <img
+                    src={logoUrl}
+                    alt=""
+                    className="h-10 w-10 rounded-md border border-gray-200 object-cover"
+                  />
                   <button
                     type="button"
                     className="text-xs text-gray-600 hover:text-black"
@@ -401,7 +413,6 @@ export default function NewObjectPage() {
                 value={city}
                 onChange={(e) => {
                   setCity(e.target.value);
-                  // если город меняется — координаты становятся потенциально неверными
                   setSelectedLat(null);
                   setSelectedLng(null);
                 }}
@@ -419,6 +430,7 @@ export default function NewObjectPage() {
                   className="w-full rounded-lg border border-gray-200 pl-9 pr-3 py-2 text-sm"
                   value={address}
                   onChange={(e) => {
+                    // ✅ ручной ввод — сбрасываем координаты и даём саджесту работать
                     setAddress(e.target.value);
                     setSelectedLat(null);
                     setSelectedLng(null);
@@ -448,16 +460,15 @@ export default function NewObjectPage() {
             </div>
           </div>
 
-          {/* ✅ маленькая подсказка про координаты */}
           {selectedLat !== null && selectedLng !== null ? (
             <div className="text-xs text-gray-500">
               Координаты сохранены:{" "}
-              <span className="font-mono">{selectedLat.toFixed(6)}, {selectedLng.toFixed(6)}</span>
+              <span className="font-mono">
+                {selectedLat.toFixed(6)}, {selectedLng.toFixed(6)}
+              </span>
             </div>
           ) : (
-            <div className="text-xs text-gray-500">
-              Выбери подсказку адреса — тогда мы сможем поставить пин на карте.
-            </div>
+            <div className="text-xs text-gray-500">Выбери подсказку адреса — тогда мы сможем поставить пин на карте.</div>
           )}
         </div>
 
@@ -485,7 +496,10 @@ export default function NewObjectPage() {
           ) : (
             <div className="flex gap-3 flex-wrap">
               {photos.map((url) => (
-                <div key={url} className="relative h-20 w-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                <div
+                  key={url}
+                  className="relative h-20 w-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={url} alt="" className="h-20 w-20 object-cover" />
                   <button
