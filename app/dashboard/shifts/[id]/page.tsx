@@ -3,6 +3,18 @@ import ShiftForm, {
   ShiftFormValues,
 } from "../_components/ShiftForm";
 
+type BookingUser = {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+};
+
+type Booking = {
+  id: string;
+  status: string;
+  user: BookingUser | null;
+};
+
 type SlotResponse = {
   id: string;
   title: string;
@@ -13,6 +25,9 @@ type SlotResponse = {
   type: string;
   hot: boolean;
   published: boolean;
+
+  // ⬅️ может быть, а может нет
+  bookings?: Booking[];
 };
 
 function getApiBaseUrl() {
@@ -27,14 +42,10 @@ async function loadSlot(id: string): Promise<SlotResponse> {
 
   const res = await fetch(`${baseUrl}/slots/${id}`, {
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-    },
+    headers: { Accept: "application/json" },
   });
 
-  if (res.status === 404) {
-    notFound();
-  }
+  if (res.status === 404) notFound();
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -55,15 +66,10 @@ export default async function ShiftDetailsPage({
 }) {
   const slot = await loadSlot(params.id);
 
-  /**
-   * ⚠️ ВАЖНО
-   * Редактирование всегда = ОДНА дата
-   * Поэтому dates: [slot.date]
-   */
   const initialValues: Partial<ShiftFormValues> = {
-    objectId: "", // объект НЕ редактируем здесь
+    objectId: "",
     title: slot.title,
-    dates: [slot.date],
+    dates: [slot.date], // ⬅️ одна дата
     startTime: slot.startTime,
     endTime: slot.endTime,
     pay: slot.pay ? String(slot.pay) : "",
@@ -72,27 +78,28 @@ export default async function ShiftDetailsPage({
     published: slot.published,
   };
 
+  const bookings = slot.bookings ?? [];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold">
-          Редактирование смены
+          Управление сменой
         </h1>
         <p className="text-sm text-gray-500">
           ID: <span className="font-mono">{slot.id}</span>
         </p>
       </div>
 
+      {/* Edit form */}
       <ShiftForm
         mode="edit"
         backHref="/dashboard/shifts"
         initialValues={initialValues}
         submitLabel="Сохранить изменения"
         onSubmit={async (values) => {
-          /**
-           * ❗ Пока UI-only, как и было
-           * Здесь позже будет PATCH /slots/:id
-           */
+          // пока UI-only
           console.log(
             "EDIT SHIFT (not yet saved):",
             params.id,
@@ -100,6 +107,51 @@ export default async function ShiftDetailsPage({
           );
         }}
       />
+
+      {/* Bookings */}
+      <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
+        <h2 className="text-lg font-medium">
+          Исполнители ({bookings.length})
+        </h2>
+
+        {bookings.length === 0 ? (
+          <div className="text-sm text-gray-500">
+            Пока никто не записался на эту смену
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {bookings.map((b) => (
+              <li
+                key={b.id}
+                className="py-3 flex items-center gap-3"
+              >
+                {/* Avatar */}
+                {b.user?.avatarUrl ? (
+                  <img
+                    src={b.user.avatarUrl}
+                    alt=""
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-gray-200" />
+                )}
+
+                {/* Name */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">
+                    {b.user?.displayName ?? "Без имени"}
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="text-sm text-gray-500">
+                  {b.status}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
