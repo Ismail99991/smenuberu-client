@@ -1,29 +1,46 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Pencil } from "lucide-react";
 
 type AdminShift = {
   id: string;
   title: string;
-  company: string;
+  company?: string | null;
   date: string;
 };
 
 async function getAdminShifts(): Promise<AdminShift[]> {
-  const res = await fetch("https://smenuberu-api.onrender.com/slots", {
+  const cookieStore = cookies();
+  const session = cookieStore.get("smenuberu_session");
+
+  // ⛔ нет сессии — не заказчик, не пускаем
+  if (!session) {
+    redirect("/login");
+  }
+
+  const res = await fetch("https://api.smenube.ru/slots/created", {
     cache: "no-store",
+    headers: {
+      Cookie: `smenuberu_session=${session.value}`,
+    },
   });
 
+  // ⛔ API не пустило — считаем, что пользователь неавторизован
+  if (res.status === 401 || res.status === 403) {
+    redirect("/login");
+  }
+
   if (!res.ok) {
-    console.error("Failed to load shifts", res.status);
-    return [];
+    throw new Error(`Failed to load shifts (${res.status})`);
   }
 
   const data = await res.json();
 
-  return data.map((slot: any) => ({
+  return (data.slots ?? []).map((slot: any) => ({
     id: slot.id,
     title: slot.title,
-    company: slot.company,
+    company: slot.object?.name ?? null,
     date: slot.date,
   }));
 }
@@ -65,9 +82,11 @@ export default async function ShiftsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{shift.title}</div>
-                  <div className="text-sm text-gray-500">
-                    {shift.company}
-                  </div>
+                  {shift.company && (
+                    <div className="text-sm text-gray-500">
+                      {shift.company}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -75,7 +94,6 @@ export default async function ShiftsPage() {
                     {shift.date}
                   </div>
 
-                  {/* ИКОНКА-КНОПКА */}
                   <Link
                     href={`/dashboard/shifts/${shift.id}`}
                     className="
@@ -88,7 +106,6 @@ export default async function ShiftsPage() {
                       transition
                     "
                     title="Редактировать смену"
-                    aria-label="Редактировать смену"
                   >
                     <Pencil className="h-4 w-4" />
                   </Link>
