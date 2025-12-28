@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import ShiftForm, {
   ShiftFormValues,
 } from "../_components/ShiftForm";
@@ -25,8 +26,6 @@ type SlotResponse = {
   type: string;
   hot: boolean;
   published: boolean;
-
-  // ⬅️ может быть, а может нет
   bookings?: Booking[];
 };
 
@@ -40,12 +39,25 @@ function getApiBaseUrl() {
 async function loadSlot(id: string): Promise<SlotResponse> {
   const baseUrl = getApiBaseUrl();
 
+  // 🔐 прокидываем cookie (иначе API вернёт 404)
+  const cookieStore = await cookies();
+  const session = cookieStore.get("smenuberu_session");
+
   const res = await fetch(`${baseUrl}/slots/${id}`, {
     cache: "no-store",
-    headers: { Accept: "application/json" },
+    headers: session
+      ? {
+          Cookie: `smenuberu_session=${session.value}`,
+          Accept: "application/json",
+        }
+      : {
+          Accept: "application/json",
+        },
   });
 
-  if (res.status === 404) notFound();
+  if (res.status === 404) {
+    notFound();
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -66,10 +78,11 @@ export default async function ShiftDetailsPage({
 }) {
   const slot = await loadSlot(params.id);
 
+  // редактирование = всегда одна дата
   const initialValues: Partial<ShiftFormValues> = {
-    objectId: "",
+    objectId: "", // объект здесь не редактируем
     title: slot.title,
-    dates: [slot.date], // ⬅️ одна дата
+    dates: [slot.date],
     startTime: slot.startTime,
     endTime: slot.endTime,
     pay: slot.pay ? String(slot.pay) : "",
@@ -99,7 +112,7 @@ export default async function ShiftDetailsPage({
         initialValues={initialValues}
         submitLabel="Сохранить изменения"
         onSubmit={async (values) => {
-          // пока UI-only
+          // ⚠️ пока UI-only, PATCH будет следующим шагом
           console.log(
             "EDIT SHIFT (not yet saved):",
             params.id,
@@ -108,7 +121,7 @@ export default async function ShiftDetailsPage({
         }}
       />
 
-      {/* Bookings */}
+      {/* Bookings block */}
       <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
         <h2 className="text-lg font-medium">
           Исполнители ({bookings.length})
