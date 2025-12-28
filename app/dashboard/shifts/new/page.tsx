@@ -143,6 +143,7 @@ export default function NewShiftPage() {
       {/* Form */}
       <div className={submitting ? "opacity-60 pointer-events-none" : ""}>
         <ShiftForm
+          mode="create"    
           submitting={submitting}
           onCancel={() => router.push("/dashboard/shifts")}
           onSubmit={handleCreate}
