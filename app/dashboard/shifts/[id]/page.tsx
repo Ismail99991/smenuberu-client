@@ -1,161 +1,144 @@
-import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
-import ShiftForm, {
-  ShiftFormValues,
-} from "../_components/ShiftForm";
+"use client";
 
-type BookingUser = {
-  id: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-};
-
-type Booking = {
-  id: string;
-  status: string;
-  user: BookingUser | null;
-};
-
-type SlotResponse = {
-  id: string;
-  title: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  pay: number | null;
-  type: string;
-  hot: boolean;
-  published: boolean;
-  bookings?: Booking[];
-};
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import ShiftForm, { ShiftFormValues } from "../_components/ShiftForm";
+import { ArrowLeft, List, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 function getApiBaseUrl() {
-  return (
-    process.env.NEXT_PUBLIC_API_URL ??
-    "https://smenuberu-api.onrender.com"
-  );
+  return process.env.NEXT_PUBLIC_API_URL ?? "https://smenuberu-api.onrender.com";
 }
 
-async function loadSlot(id: string): Promise<SlotResponse> {
-  const baseUrl = getApiBaseUrl();
+export default function NewShiftPage() {
+  const router = useRouter();
 
-  const cookieStore = await cookies();
-  const session = cookieStore.get("smenuberu_session");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createdIds, setCreatedIds] = useState<string[]>([]);
 
-  const res = await fetch(`${baseUrl}/slots/${id}`, {
-    cache: "no-store",
-    headers: session
-      ? {
-          Cookie: `smenuberu_session=${session.value}`,
-          Accept: "application/json",
-        }
-      : {
-          Accept: "application/json",
-        },
-  });
+  const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
-  if (res.status === 404) {
-    notFound();
+  async function createOne(values: ShiftFormValues, dateISO: string) {
+    const pay = Number(values.pay);
+
+    const res = await fetch(`${apiBaseUrl}/slots`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        objectId: values.objectId,
+        title: values.title,
+        date: dateISO,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        pay: Math.round(pay),
+        type: values.type,
+        hot: values.hot,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`API error: ${res.status}${text ? ` — ${text}` : ""}`);
+    }
+
+    const data = (await res.json()) as {
+      id?: string;
+      slot?: { id?: string };
+    };
+
+    const id = data.id ?? data.slot?.id;
+    if (!id) throw new Error("API: slot created but id missing");
+
+    return id;
   }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to load slot ${id}: ${res.status}${
-        text ? ` ${text}` : ""
-      }`
-    );
+  async function handleCreate(values: ShiftFormValues) {
+    setSubmitting(true);
+    setError(null);
+    setCreatedIds([]);
+
+    try {
+      const pay = Number(values.pay);
+
+      if (!values.objectId) throw new Error("Выбери объект");
+      if (!values.title.trim()) throw new Error("Введи название смены");
+      if (!values.dates || values.dates.length === 0)
+        throw new Error("Выбери хотя бы одну дату");
+      if (!values.startTime) throw new Error("Выбери время начала");
+      if (!values.endTime) throw new Error("Выбери время окончания");
+      if (!Number.isFinite(pay) || pay <= 0)
+        throw new Error("Оплата должна быть больше 0");
+
+      const ids: string[] = [];
+
+      for (const dateISO of values.dates) {
+        const id = await createOne(values, dateISO);
+        ids.push(id);
+      }
+
+      setCreatedIds(ids);
+    } catch (e: any) {
+      setError(e?.message ?? "Ошибка создания смены");
+    } finally {
+      setSubmitting(false);
+    }
   }
-
-  return (await res.json()) as SlotResponse;
-}
-
-export default async function ShiftDetailsPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const slot = await loadSlot(params.id);
-
-  const initialValues: Partial<ShiftFormValues> = {
-    objectId: "",
-    title: slot.title,
-    dates: [slot.date],
-    startTime: slot.startTime,
-    endTime: slot.endTime,
-    pay: slot.pay ? String(slot.pay) : "",
-    type: slot.type as any,
-    hot: slot.hot,
-    published: slot.published,
-  };
-
-  const bookings = slot.bookings ?? [];
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">
-          Управление сменой
-        </h1>
-        <p className="text-sm text-gray-500">
-          ID: <span className="font-mono">{slot.id}</span>
-        </p>
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Создать смену</h1>
+          <p className="text-sm text-gray-500">
+            Можно выбрать любые даты
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/shifts")}
+            className="rounded-lg border p-2"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/shifts")}
+            className="rounded-lg border p-2"
+          >
+            <List className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
-      <ShiftForm
-        mode="edit"
-        backHref="/dashboard/shifts"
-        initialValues={initialValues}
-        submitLabel="Сохранить изменения"
-        onSubmit={async (values) => {
-          // PATCH /slots/:id будет следующим шагом
-          console.log(
-            "EDIT SHIFT (not yet saved):",
-            params.id,
-            values
-          );
-        }}
-      />
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex gap-2">
+          <AlertTriangle className="h-5 w-5" />
+          {error}
+        </div>
+      )}
 
-      <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
-        <h2 className="text-lg font-medium">
-          Исполнители ({bookings.length})
-        </h2>
+      {createdIds.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 flex gap-2">
+          <CheckCircle2 className="h-5 w-5" />
+          Создано смен: {createdIds.length}
+        </div>
+      )}
 
-        {bookings.length === 0 ? (
-          <div className="text-sm text-gray-500">
-            Пока никто не записался на эту смену
-          </div>
-        ) : (
-          <ul className="divide-y">
-            {bookings.map((b) => (
-              <li
-                key={b.id}
-                className="py-3 flex items-center gap-3"
-              >
-                {b.user?.avatarUrl ? (
-                  <img
-                    src={b.user.avatarUrl}
-                    alt=""
-                    className="h-8 w-8 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="h-8 w-8 rounded-full bg-gray-200" />
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
-                    {b.user?.displayName ?? "Без имени"}
-                  </div>
-                </div>
-
-                <div className="text-sm text-gray-500">
-                  {b.status}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className={submitting ? "opacity-60 pointer-events-none" : ""}>
+        <ShiftForm
+          mode="create"
+          submitting={submitting}
+          onCancel={() => router.push("/dashboard/shifts")}
+          onSubmit={handleCreate}
+          submitLabel={submitting ? "Сохранение…" : "Создать"}
+        />
       </div>
     </div>
   );
