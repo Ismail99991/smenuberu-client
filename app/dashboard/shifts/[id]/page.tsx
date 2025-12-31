@@ -54,9 +54,8 @@ async function loadSlot(id: string): Promise<SlotResponse> {
         },
   });
 
-  if (res.status === 404) {
-    notFound();
-  }
+ console.log("SSR STATUS:", res.status);
+ console.log("SSR URL:", `${baseUrl}/slots/${id}`);
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
