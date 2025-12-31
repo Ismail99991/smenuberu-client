@@ -37,6 +37,7 @@ export type ShiftFormValues = {
 
 type Props = {
   mode: "create" | "edit";
+  backHref?: string;
   initialValues?: Partial<ShiftFormValues>;
   onSubmit?: (values: ShiftFormValues) => void | Promise<void>;
   submitLabel?: string;
