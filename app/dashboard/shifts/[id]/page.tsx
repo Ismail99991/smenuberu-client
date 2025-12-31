@@ -76,6 +76,16 @@ export default async function ShiftDetailsPage({
 }: {
   params: { id: string };
 }) {
+
+  if (
+     !params ||
+     !params.id ||
+     params.id === "undefined" ||
+     params.id.trim() === ""
+    ) {
+    notFound();
+  }
+
   const slot = await loadSlot(params.id);
 
   // редактирование = всегда одна дата
