@@ -96,7 +96,6 @@ export default function NewObjectPage() {
   const [suggestItems, setSuggestItems] = useState<SuggestItem[]>([]);
   const suggestReqId = useRef(0);
 
-  // ✅ подавляем автосаджест при программном setAddress (выбор подсказки / нормализация)
   const suppressSuggestRef = useRef(false);
 
   const [busy, setBusy] = useState(false);
@@ -108,28 +107,26 @@ export default function NewObjectPage() {
 
   const TitleIcon = TYPE_OPTIONS.find((x) => x.value === objType)?.Icon ?? HelpCircle;
 
-  async function presignDraftUpload(kind: "logo" | "photo", contentType: string) {
-    const path = kind === "logo" ? "/uploads/draft-logo" : "/uploads/draft-photo";
-    return api<{ ok: true; uploadUrl: string; publicUrl: string; path: string }>(
-      path,
-      { method: "POST" },
-      { draftId, contentType }
-    );
-  }
+  // ✅ НОВАЯ ФУНКЦИЯ: прямая загрузка файла на API
+  async function uploadFileDirect(endpoint: string, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("draftId", draftId);
+    formData.append("contentType", file.type || "application/octet-stream");
 
-  async function putFile(uploadUrl: string, file: File) {
-    const ct = file.type && file.type.trim() ? file.type : "application/octet-stream";
-
-    const r = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": ct },
-      body: file,
+    const res = await fetch(`${apiBase()}${endpoint}`, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
     });
 
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      throw new Error(`Upload failed: ${r.status} ${text}`.trim());
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error?.message ?? `Upload failed: ${res.status}`);
     }
+
+    const data = await res.json();
+    return data.publicUrl;
   }
 
   async function onPickLogo(file: File | null) {
@@ -138,9 +135,8 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      const presign = await presignDraftUpload("logo", file.type || "application/octet-stream");
-      await putFile(presign.uploadUrl, file);
-      setLogoUrl(presign.publicUrl);
+      const publicUrl = await uploadFileDirect("/uploads/draft-logo", file);
+      setLogoUrl(publicUrl);
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить логотип");
     } finally {
@@ -165,9 +161,8 @@ export default function NewObjectPage() {
 
       const uploaded: string[] = [];
       for (const f of toUpload) {
-        const presign = await presignDraftUpload("photo", f.type || "application/octet-stream");
-        await putFile(presign.uploadUrl, f);
-        uploaded.push(presign.publicUrl);
+        const publicUrl = await uploadFileDirect("/uploads/draft-photo", f);
+        uploaded.push(publicUrl);
       }
 
       setPhotos((prev) => [...prev, ...uploaded].slice(0, 3));
@@ -218,8 +213,6 @@ export default function NewObjectPage() {
 
   // --- Address suggestions (через /geo/suggest) ---
   useEffect(() => {
-    // ✅ если адрес установили программно (клик по подсказке / нормализация) —
-    // не запускаем suggest, иначе будет ощущение "опять предлагает"
     if (suppressSuggestRef.current) {
       suppressSuggestRef.current = false;
       return;
@@ -255,8 +248,6 @@ export default function NewObjectPage() {
   async function onPickSuggestion(it: SuggestItem) {
     const nextAddress = (it.value || it.title).trim();
 
-    // ✅ закрываем и очищаем dropdown сразу,
-    // и подавляем повторный suggest на программный setAddress
     setSuggestOpen(false);
     setSuggestItems([]);
     suppressSuggestRef.current = true;
@@ -277,8 +268,6 @@ export default function NewObjectPage() {
       setSelectedLat(g.lat ?? null);
       setSelectedLng(g.lng ?? null);
 
-      // ✅ если backend вернул нормализованный адрес — можно подменить,
-      // но тоже без повторного suggest
       if (g.address && typeof g.address === "string" && g.address.trim()) {
         const normalized = g.address.trim();
         if (normalized !== nextAddress) {
@@ -430,7 +419,6 @@ export default function NewObjectPage() {
                   className="w-full rounded-lg border border-gray-200 pl-9 pr-3 py-2 text-sm"
                   value={address}
                   onChange={(e) => {
-                    // ✅ ручной ввод — сбрасываем координаты и даём саджесту работать
                     setAddress(e.target.value);
                     setSelectedLat(null);
                     setSelectedLng(null);
