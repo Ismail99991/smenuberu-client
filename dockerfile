@@ -1,10 +1,10 @@
 FROM node:22-alpine AS deps
 
-RUN apk add --no-cache libc6-compat openssl python3 make g++
+RUN apk add --no-cache libc6-compat openssl
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 
 RUN npm ci --ignore-scripts
 
