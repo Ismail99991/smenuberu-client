@@ -512,7 +512,7 @@ export default function ObjectsPage() {
                             Новый
                           </span>
                         )}
-                        {object.stats?.activeSlots > 0 && (
+                        {object.stats && object.stats.activeSlots > 0 && (
                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                             {object.stats.activeSlots} активн{object.stats.activeSlots === 1 ? "ая смена" : "ых смен"}
                           </span>
