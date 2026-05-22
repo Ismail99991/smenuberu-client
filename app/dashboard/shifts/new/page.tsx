@@ -15,7 +15,7 @@ import {
 function getApiBaseUrl() {
   return (
     process.env.NEXT_PUBLIC_API_URL ??
-    "https://smenuberu-api.onrender.com"
+    "https://api.smenube.ru"
   );
 }
 
