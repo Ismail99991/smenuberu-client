@@ -41,12 +41,7 @@ function isPast(date: string): boolean {
   return new Date(date) < new Date();
 }
 
-function isWithin6Hours(date: string, startTime: string): boolean {
-  const shiftStart = new Date(`${date}T${startTime}`);
-  const now = new Date();
-  const diffHours = (shiftStart.getTime() - now.getTime()) / (1000 * 60 * 60);
-  return diffHours < 6;
-}
+
 
 export default async function ShiftsPage() {
   const shifts: Shift[] = await getShifts();
