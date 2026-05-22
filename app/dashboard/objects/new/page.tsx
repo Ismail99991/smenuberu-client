@@ -11,6 +11,11 @@ import {
   HelpCircle,
   Image as ImageIcon,
   MapPin,
+  Building2,
+  X,
+  Upload,
+  Check,
+  ArrowLeft,
 } from "lucide-react";
 
 function apiBase() {
@@ -62,17 +67,14 @@ const TYPE_OPTIONS: Array<{
   value: ObjectType;
   label: string;
   Icon: any;
+  description: string;
 }> = [
-  { value: "production", label: "Производство", Icon: Factory },
-  { value: "warehouse", label: "Крупный склад", Icon: Warehouse },
-  { value: "hub", label: "Хаб", Icon: Boxes },
-  { value: "sort", label: "Сортировочный центр", Icon: SplitSquareVertical },
-  { value: "other", label: "Другое", Icon: HelpCircle },
+  { value: "production", label: "Производство", Icon: Factory, description: "Заводы, фабрики, цеха" },
+  { value: "warehouse", label: "Склад", Icon: Warehouse, description: "Крупные склады, распределительные центры" },
+  { value: "hub", label: "Хаб", Icon: Boxes, description: "Транспортные хабы, сортировочные узлы" },
+  { value: "sort", label: "Сортировочный центр", Icon: SplitSquareVertical, description: "Почтовые и логистические центры" },
+  { value: "other", label: "Другое", Icon: HelpCircle, description: "Офисы, магазины, другие объекты" },
 ];
-
-function typeLabel(t: ObjectType) {
-  return TYPE_OPTIONS.find((x) => x.value === t)?.label ?? "Объект";
-}
 
 export default function NewObjectPage() {
   const router = useRouter();
@@ -100,6 +102,7 @@ export default function NewObjectPage() {
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   const canCreate = useMemo(() => {
     return brandName.trim().length > 0 && city.trim().length > 0 && address.trim().length > 0;
@@ -107,7 +110,6 @@ export default function NewObjectPage() {
 
   const TitleIcon = TYPE_OPTIONS.find((x) => x.value === objType)?.Icon ?? HelpCircle;
 
-  // ✅ НОВАЯ ФУНКЦИЯ: прямая загрузка файла на API
   async function uploadFileDirect(endpoint: string, file: File) {
     const formData = new FormData();
     formData.append("file", file);
@@ -147,8 +149,8 @@ export default function NewObjectPage() {
   async function onPickPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
 
-    if (photos.length >= 3) {
-      setErr("Можно добавить максимум 3 фото.");
+    if (photos.length >= 6) {
+      setErr("Можно добавить максимум 6 фото.");
       return;
     }
 
@@ -156,7 +158,7 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      const remaining = 3 - photos.length;
+      const remaining = 6 - photos.length;
       const toUpload = Array.from(files).slice(0, remaining);
 
       const uploaded: string[] = [];
@@ -165,7 +167,7 @@ export default function NewObjectPage() {
         uploaded.push(publicUrl);
       }
 
-      setPhotos((prev) => [...prev, ...uploaded].slice(0, 3));
+      setPhotos((prev) => [...prev, ...uploaded].slice(0, 6));
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить фото");
     } finally {
@@ -186,7 +188,7 @@ export default function NewObjectPage() {
     setBusy(true);
 
     try {
-      if (!canCreate) throw new Error("Заполни: бренд (название), город и адрес");
+      if (!canCreate) throw new Error("Заполните название, город и адрес");
 
       await api<CreatedObject>(
         "/objects",
@@ -203,7 +205,8 @@ export default function NewObjectPage() {
         }
       );
 
-      router.push("/dashboard/objects");
+      setSuccess(true);
+      setTimeout(() => router.push("/dashboard/objects"), 1500);
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось сохранить объект");
     } finally {
@@ -211,7 +214,6 @@ export default function NewObjectPage() {
     }
   }
 
-  // --- Address suggestions (через /geo/suggest) ---
   useEffect(() => {
     if (suppressSuggestRef.current) {
       suppressSuggestRef.current = false;
@@ -283,140 +285,151 @@ export default function NewObjectPage() {
     }
   }
 
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">Создать объект</h1>
-          <p className="text-sm text-gray-500">
-            <span className="inline-flex items-center gap-2">
-              <TitleIcon className="h-4 w-4" />
-              {typeLabel(objType)}{" "}
-              {brandName.trim() ? (
-                <>
-                  «<span className="font-medium">{brandName.trim()}</span>»
-                </>
-              ) : null}
-            </span>
-          </p>
+  if (success) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
+          <Check className="h-8 w-8 text-green-600" />
         </div>
-
-        <Link
-          href="/dashboard/objects"
-          className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm hover:bg-gray-50"
-        >
-          Назад
-        </Link>
+        <h2 className="text-xl font-semibold">Объект создан!</h2>
+        <p className="text-gray-500">Перенаправляем в список объектов...</p>
       </div>
+    );
+  }
 
-      {err ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{err}</div>
-      ) : null}
-
-      <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-        {/* Basic */}
-        <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-3xl mx-auto px-4">
+        {/* Шапка */}
+        <div className="mb-6 flex items-center gap-4">
+          <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-xl transition">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
           <div>
-            <label className="block text-sm font-medium mb-2">Brand name</label>
-            <input
-              type="text"
-              placeholder='Например: "Amazon" или "Adidas"'
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              disabled={busy}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Тип объекта</label>
-            <div className="relative">
-              <select
-                className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm pr-10"
-                value={objType}
-                onChange={(e) => setObjType(e.target.value as ObjectType)}
-                disabled={busy}
-              >
-                {TYPE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-                <TitleIcon className="h-4 w-4" />
-              </div>
-            </div>
-          </div>
-
-          {/* Logo */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">Логотип</label>
-
-            <div className="flex items-center gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50">
-                <ImageIcon className="h-4 w-4" />
-                <span>{busy ? "Загрузка…" : "Загрузить логотип"}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={busy}
-                  onChange={(e) => onPickLogo(e.target.files?.[0] ?? null)}
-                />
-              </label>
-
-              {logoUrl ? (
-                <div className="flex items-center gap-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={logoUrl}
-                    alt=""
-                    className="h-10 w-10 rounded-md border border-gray-200 object-cover"
-                  />
-                  <button
-                    type="button"
-                    className="text-xs text-gray-600 hover:text-black"
-                    onClick={() => setLogoUrl(null)}
-                    disabled={busy}
-                  >
-                    Удалить
-                  </button>
-                </div>
-              ) : (
-                <div className="text-xs text-gray-500">Логотип пока не загружен</div>
-              )}
-            </div>
+            <h1 className="text-2xl font-bold">Создать объект</h1>
+            <p className="text-sm text-gray-500 mt-1">Добавьте склад, производство или другой объект</p>
           </div>
         </div>
 
-        {/* Address */}
-        <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Ошибка */}
+        {err && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {err}
+          </div>
+        )}
+
+        <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+          {/* Тип объекта — карточки */}
+          <div>
+            <label className="block text-sm font-semibold mb-3">Тип объекта</label>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {TYPE_OPTIONS.map((option) => {
+                const Icon = option.Icon;
+                const isActive = objType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setObjType(option.value)}
+                    className={`
+                      flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all
+                      ${isActive 
+                        ? "border-[#c29cf2] bg-[#c29cf2]/5" 
+                        : "border-gray-200 bg-white hover:border-gray-300"}
+                    `}
+                  >
+                    <Icon className={`h-6 w-6 ${isActive ? "text-[#c29cf2]" : "text-gray-500"}`} />
+                    <span className={`text-sm font-medium ${isActive ? "text-[#c29cf2]" : "text-gray-700"}`}>
+                      {option.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Основная информация */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Основная информация
+            </h2>
+
             <div>
-              <label className="block text-sm font-medium mb-2">Город</label>
+              <label className="block text-sm font-medium mb-2">Название объекта *</label>
               <input
                 type="text"
-                placeholder="Москва"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                value={city}
-                onChange={(e) => {
-                  setCity(e.target.value);
-                  setSelectedLat(null);
-                  setSelectedLng(null);
-                }}
+                placeholder="Например: OZON, Wildberries, СберЛогистика"
+                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:border-[#c29cf2] focus:ring-1 focus:ring-[#c29cf2]"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
                 disabled={busy}
               />
             </div>
 
-            <div className="relative">
-              <label className="block text-sm font-medium mb-2">Адрес</label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            {/* Логотип */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Логотип</label>
+              <div className="flex items-center gap-4">
+                {logoUrl ? (
+                  <div className="relative">
+                    <img src={logoUrl} alt="Logo" className="h-16 w-16 rounded-xl border border-gray-200 object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl(null)}
+                      className="absolute -top-2 -right-2 p-1 bg-white rounded-full border border-gray-200 hover:bg-gray-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-32 h-32 rounded-xl border-2 border-dashed border-gray-300 cursor-pointer hover:border-[#c29cf2] transition">
+                    <Upload className="h-8 w-8 text-gray-400" />
+                    <span className="text-xs text-gray-500 mt-2">Загрузить</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(e) => onPickLogo(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                )}
+                <p className="text-xs text-gray-500">PNG, JPG до 5 МБ</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Адрес */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Адрес объекта
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Город *</label>
                 <input
                   type="text"
-                  placeholder="Начни вводить адрес…"
-                  className="w-full rounded-lg border border-gray-200 pl-9 pr-3 py-2 text-sm"
+                  placeholder="Москва"
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:border-[#c29cf2] focus:ring-1 focus:ring-[#c29cf2]"
+                  value={city}
+                  onChange={(e) => {
+                    setCity(e.target.value);
+                    setSelectedLat(null);
+                    setSelectedLng(null);
+                  }}
+                  disabled={busy}
+                />
+              </div>
+
+              <div className="relative">
+                <label className="block text-sm font-medium mb-2">Улица и дом *</label>
+                <input
+                  type="text"
+                  placeholder="Начните вводить адрес..."
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:border-[#c29cf2] focus:ring-1 focus:ring-[#c29cf2]"
                   value={address}
                   onChange={(e) => {
                     setAddress(e.target.value);
@@ -424,106 +437,94 @@ export default function NewObjectPage() {
                     setSelectedLng(null);
                   }}
                   onFocus={() => setSuggestOpen(suggestItems.length > 0)}
-                  onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                  onBlur={() => setTimeout(() => setSuggestOpen(false), 200)}
                   disabled={busy}
                 />
+
+                {suggestOpen && (
+                  <div className="absolute z-20 mt-1 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+                    {suggestItems.map((item, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition text-sm"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => onPickSuggestion(item)}
+                      >
+                        <div className="font-medium">{item.title}</div>
+                        {item.subtitle && <div className="text-xs text-gray-500">{item.subtitle}</div>}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              {suggestOpen ? (
-                <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                  {suggestItems.map((it, idx) => (
-                    <button
-                      key={`${it.value}-${idx}`}
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onPickSuggestion(it)}
-                    >
-                      <div className="text-sm">{it.title || it.value}</div>
-                      {it.subtitle ? <div className="text-xs text-gray-500">{it.subtitle}</div> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
+
+            {selectedLat && selectedLng && (
+              <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 p-3 rounded-lg">
+                <Check className="h-4 w-4" />
+                Координаты определены
+              </div>
+            )}
           </div>
 
-          {selectedLat !== null && selectedLng !== null ? (
-            <div className="text-xs text-gray-500">
-              Координаты сохранены:{" "}
-              <span className="font-mono">
-                {selectedLat.toFixed(6)}, {selectedLng.toFixed(6)}
-              </span>
-            </div>
-          ) : (
-            <div className="text-xs text-gray-500">Выбери подсказку адреса — тогда мы сможем поставить пин на карте.</div>
-          )}
-        </div>
+          {/* Фотографии */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <ImageIcon className="h-5 w-5" />
+              Фотографии объекта
+            </h2>
 
-        {/* Photos */}
-        <div className="rounded-xl bg-white border border-gray-200 p-6 space-y-4">
-          <div>
-            <h2 className="text-sm font-medium mb-1">Фотографии объекта</h2>
-            <p className="text-xs text-gray-500">Максимум 3 фото</p>
-          </div>
-
-          <label className="flex items-center justify-center h-32 rounded-lg border border-dashed border-gray-300 cursor-pointer hover:bg-gray-50 text-sm text-gray-500">
-            <span>{busy ? "Загрузка…" : "Нажмите, чтобы добавить фото"}</span>
-            <input
-              type="file"
-              multiple
-              accept="image/*"
-              className="hidden"
-              disabled={busy || photos.length >= 3}
-              onChange={(e) => onPickPhotos(e.target.files)}
-            />
-          </label>
-
-          {photos.length === 0 ? (
-            <div className="text-sm text-gray-500">Фото пока нет</div>
-          ) : (
-            <div className="flex gap-3 flex-wrap">
-              {photos.map((url) => (
-                <div
-                  key={url}
-                  className="relative h-20 w-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-20 w-20 object-cover" />
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {photos.map((url, idx) => (
+                <div key={idx} className="relative group">
+                  <img src={url} alt={`Фото ${idx + 1}`} className="h-24 w-full rounded-lg object-cover border border-gray-200" />
                   <button
                     type="button"
-                    className="absolute inset-x-0 bottom-0 bg-white/90 text-[11px] py-1 hover:bg-white"
                     onClick={() => removePhoto(url)}
-                    disabled={busy}
-                    title="Удалить"
+                    className="absolute top-1 right-1 p-1 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
                   >
-                    Удалить
+                    <X className="h-3 w-3" />
                   </button>
                 </div>
               ))}
+              {photos.length < 6 && (
+                <label className="flex flex-col items-center justify-center h-24 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer hover:border-[#c29cf2] transition">
+                  <Upload className="h-5 w-5 text-gray-400" />
+                  <span className="text-xs text-gray-500 mt-1">Добавить</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                    disabled={busy}
+                    onChange={(e) => onPickPhotos(e.target.files)}
+                  />
+                </label>
+              )}
             </div>
-          )}
-        </div>
+            <p className="text-xs text-gray-500">Максимум 6 фото. Покажите объект с разных сторон</p>
+          </div>
 
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-3">
-          <Link
-            href="/dashboard/objects"
-            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            Отмена
-          </Link>
-
-          <button
-            type="button"
-            className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
-            disabled={busy || !canCreate}
-            onClick={onSave}
-          >
-            {busy ? "Сохранение…" : "Сохранить"}
-          </button>
-        </div>
-      </form>
+          {/* Кнопки */}
+          <div className="flex gap-3 justify-end">
+            <Link
+              href="/dashboard/objects"
+              className="px-6 py-2.5 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 transition"
+            >
+              Отмена
+            </Link>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={busy || !canCreate}
+              className="px-6 py-2.5 bg-[#c29cf2] text-white rounded-xl font-medium hover:bg-[#b088e8] disabled:opacity-50 transition"
+            >
+              {busy ? "Сохранение..." : "Создать объект"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
