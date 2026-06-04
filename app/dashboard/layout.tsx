@@ -11,12 +11,14 @@ import {
   Briefcase,
   Bell,
   User,
+  CreditCard,  // ← ДОБАВИТЬ иконку для выплат
 } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
   { href: "/dashboard/objects", label: "Объекты", icon: Building2 },
   { href: "/dashboard/shifts", label: "Смены", icon: Briefcase },
+  { href: "/dashboard/payouts", label: "Выплаты", icon: CreditCard }, // ← ДОБАВИТЬ ЭТУ СТРОКУ
   { href: "/dashboard/notifications", label: "Уведомления", icon: Bell },
   { href: "/dashboard/profile", label: "Профиль", icon: User },
 ];
