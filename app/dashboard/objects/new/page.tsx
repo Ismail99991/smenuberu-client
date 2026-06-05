@@ -16,6 +16,7 @@ import {
   Upload,
   Check,
   ArrowLeft,
+  Copy,
 } from "lucide-react";
 
 function apiBase() {
@@ -104,6 +105,9 @@ export default function NewObjectPage() {
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Для уведомления о копировании
+  const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
+
   const canCreate = useMemo(() => {
     return brandName.trim().length > 0 && city.trim().length > 0 && address.trim().length > 0;
   }, [brandName, city, address]);
@@ -139,6 +143,7 @@ export default function NewObjectPage() {
     try {
       const publicUrl = await uploadFileDirect("/uploads/draft-logo", file);
       setLogoUrl(publicUrl);
+      showCopiedMessage("Логотип загружен, ссылка готова");
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить логотип");
     } finally {
@@ -168,6 +173,7 @@ export default function NewObjectPage() {
       }
 
       setPhotos((prev) => [...prev, ...uploaded].slice(0, 6));
+      showCopiedMessage(`Загружено ${uploaded.length} фото, ссылки готовы`);
     } catch (e: any) {
       setErr(e?.message ?? "Не удалось загрузить фото");
     } finally {
@@ -212,6 +218,16 @@ export default function NewObjectPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function copyToClipboard(text: string, type: string) {
+    navigator.clipboard.writeText(text);
+    showCopiedMessage(`${type} скопирована`);
+  }
+
+  function showCopiedMessage(msg: string) {
+    setCopiedMessage(msg);
+    setTimeout(() => setCopiedMessage(null), 2000);
   }
 
   useEffect(() => {
@@ -311,6 +327,14 @@ export default function NewObjectPage() {
           </div>
         </div>
 
+        {/* Временное уведомление о копировании */}
+        {copiedMessage && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            <Check className="h-4 w-4" />
+            {copiedMessage}
+          </div>
+        )}
+
         {/* Ошибка */}
         {err && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
@@ -370,7 +394,7 @@ export default function NewObjectPage() {
             {/* Логотип */}
             <div>
               <label className="block text-sm font-medium mb-2">Логотип</label>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 {logoUrl ? (
                   <div className="relative">
                     <img src={logoUrl} alt="Logo" className="h-16 w-16 rounded-xl border border-gray-200 object-cover" />
@@ -394,6 +418,16 @@ export default function NewObjectPage() {
                       onChange={(e) => onPickLogo(e.target.files?.[0] ?? null)}
                     />
                   </label>
+                )}
+                {logoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(logoUrl, "Ссылка на логотип")}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Копировать ссылку
+                  </button>
                 )}
                 <p className="text-xs text-gray-500">PNG, JPG до 5 МБ</p>
               </div>
@@ -485,6 +519,13 @@ export default function NewObjectPage() {
                     className="absolute top-1 right-1 p-1 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
                   >
                     <X className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(url, `Ссылка на фото ${idx + 1}`)}
+                    className="absolute bottom-1 left-1 p-1 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
+                  >
+                    <Copy className="h-3 w-3 text-gray-600" />
                   </button>
                 </div>
               ))}
